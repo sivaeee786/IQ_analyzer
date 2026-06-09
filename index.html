@@ -1,0 +1,1335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IQ Analyzer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<style>
+/* ── Reset ──────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: #dfe8d0;
+  font-family: 'Sora', 'Segoe UI', sans-serif;
+  font-size: 13px;
+  color: #1f2a1f;
+  min-height: 100vh;
+  padding: 18px;
+}
+
+/* ── Outer card ─────────────────────────────────────── */
+.app-card {
+  background: #f5f8ef;
+  border-radius: 20px;
+  border: 1px solid #cdd8ba;
+  box-shadow: 0 4px 32px rgba(60,80,40,0.10);
+  overflow: hidden;
+  min-height: calc(100vh - 36px);
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Page title ─────────────────────────────────────── */
+.page-title {
+  padding: 18px 24px 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: #1f2a1f;
+  letter-spacing: -0.3px;
+}
+.page-subtitle {
+  padding: 2px 24px 10px;
+  font-size: 11px;
+  color: #7a8f6a;
+  font-weight: 400;
+}
+
+/* ── Main two-column layout ─────────────────────────── */
+.main-layout {
+  display: grid;
+  grid-template-columns: 264px 1fr;
+  gap: 14px;
+  padding: 0 16px 16px;
+  flex: 1;
+  min-height: 0;
+}
+
+/* ── Left sidebar ───────────────────────────────────── */
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: calc(100vh - 90px);
+  overflow-y: auto;
+}
+
+.panel {
+  background: #ffffff;
+  border-radius: 14px;
+  border: 1px solid #dde8cc;
+  padding: 14px;
+}
+.panel-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1f2a1f;
+  margin-bottom: 3px;
+}
+.panel-desc {
+  font-size: 11px;
+  color: #8a9e78;
+  margin-bottom: 12px;
+  line-height: 1.4;
+}
+
+/* File upload box */
+.upload-box {
+  background: #f0f7e6;
+  border: 1.5px dashed #a8c882;
+  border-radius: 10px;
+  padding: 12px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.15s;
+  margin-bottom: 10px;
+}
+.upload-box:hover { background: #e8f3da; border-color: #7ab050; }
+.upload-box.drag-over { background: #dff0cc; border-color: #5a9030; }
+.upload-box input { display: none; }
+.upload-box-icon {
+  width: 36px; height: 36px;
+  background: #c8e4a0;
+  border-radius: 50%;
+  margin: 0 auto 8px;
+  display: flex; align-items: center; justify-content: center;
+}
+.upload-box-icon svg { color: #4a8020; }
+.upload-label { font-size: 12px; font-weight: 600; color: #3a6818; margin-bottom: 2px; }
+.upload-sub { font-size: 10.5px; color: #8aae68; }
+.file-chosen { font-size: 11px; color: #4a7030; font-weight: 500; margin-top: 6px; font-style: italic; }
+
+/* Format row */
+.form-row { margin-bottom: 8px; }
+.form-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: #8a9e78;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  margin-bottom: 4px;
+  display: block;
+}
+select, input[type="number"], input[type="text"] {
+  width: 100%;
+  background: #f5f8ef;
+  border: 1.5px solid #cdd8ba;
+  color: #1f2a1f;
+  padding: 6px 9px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+select:focus, input:focus {
+  border-color: #7ab050;
+  box-shadow: 0 0 0 3px rgba(122,176,80,0.15);
+}
+
+/* Inline two-field row */
+.form-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+
+/* Range row */
+.range-row { display: flex; gap: 6px; align-items: center; }
+.range-row input { flex: 1; }
+.range-sep { font-size: 11px; color: #a0b888; font-weight: 700; }
+
+/* Analyze button */
+.btn-analyze {
+  width: 100%;
+  background: #5a9030;
+  border: none;
+  color: #fff;
+  padding: 9px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s;
+  box-shadow: 0 2px 8px rgba(90,144,48,0.30);
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+}
+.btn-analyze:hover { background: #4a7828; box-shadow: 0 4px 14px rgba(90,144,48,0.4); }
+.btn-analyze:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
+
+.btn-reset {
+  width: 100%;
+  background: #fff;
+  border: 1.5px solid #cdd8ba;
+  color: #5a7048;
+  padding: 7px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s;
+  margin-top: 6px;
+}
+.btn-reset:hover { background: #f0f7e6; border-color: #9ac872; }
+
+/* Status */
+#status {
+  font-size: 11px;
+  font-weight: 500;
+  min-height: 18px;
+  margin-top: 6px;
+  padding: 4px 0 0;
+}
+.status-ok   { color: #3a7820; }
+.status-err  { color: #c03030; }
+.status-info { color: #5a7890; }
+
+/* Stats mini-cards */
+.stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.stat-mini {
+  background: #f0f7e6;
+  border-radius: 8px;
+  border: 1px solid #d0e0b8;
+  padding: 7px 8px;
+}
+.stat-mini-label { font-size: 9.5px; font-weight: 700; color: #8aaa68; text-transform: uppercase; letter-spacing: 0.5px; }
+.stat-mini-val   { font-size: 12px; font-weight: 700; color: #2a5010; font-family: 'Consolas', monospace; margin-top: 1px; }
+
+/* ── Plot type dropdown row ──────────────────────────── */
+.plot-selector-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+.plot-selector-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: #8a9e78;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  white-space: nowrap;
+}
+.plot-type-select {
+  flex: 1;
+  min-width: 180px;
+  background: #1a2812;
+  border: 1.5px solid #2e4020;
+  color: #8ab870;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-family: inherit;
+  font-weight: 600;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238ab870' stroke-width='2.5'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  padding-right: 28px;
+}
+.plot-type-select:focus {
+  border-color: #7ab050;
+  box-shadow: 0 0 0 3px rgba(90,160,48,0.18);
+}
+.plot-type-select option {
+  background: #1a2812;
+  color: #8ab870;
+}
+
+/* ── Right plot area ────────────────────────────────── */
+.plot-area {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* Drop zone inside plot area */
+.drop-zone {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: #111a0c;
+  border-radius: 16px;
+  border: 2px dashed #3a5028;
+  gap: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+  min-height: 500px;
+  color: #4a7038;
+}
+.drop-zone:hover, .drop-zone.drag-over {
+  border-color: #7ab050;
+  background: #0e1609;
+}
+.dz-icon-wrap {
+  width: 56px; height: 56px;
+  background: #1e3012;
+  border-radius: 14px;
+  display: flex; align-items: center; justify-content: center;
+}
+.dz-title { font-size: 14px; font-weight: 600; color: #6a9048; }
+.dz-sub { font-size: 11.5px; color: #3a5828; }
+
+/* Plot grid inside dark container */
+.plot-container {
+  flex: 1;
+  background: #0e1609;
+  border-radius: 16px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+}
+.plots-grid {
+  display: grid;
+  gap: 12px;
+  flex: 1;
+}
+.plots-grid.cols-2 { grid-template-columns: 1fr 1fr; }
+.plots-grid.cols-1 { grid-template-columns: 1fr; }
+
+.plot-card {
+  background: #111a0c;
+  border-radius: 12px;
+  border: 1px solid #243018;
+  overflow: hidden;
+}
+.plot-card.full-width { grid-column: 1 / -1; }
+
+.plot-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid #1e2a14;
+  background: #0e1609;
+}
+.plot-card-title {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #8ab870;
+  display: flex; align-items: center; gap: 6px;
+}
+.plot-card-title .tdot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.plot-card-controls {
+  display: flex; gap: 6px; align-items: center;
+}
+.plot-card-controls label { font-size: 10px; color: #5a7848; font-weight: 600; }
+.plot-card-controls select {
+  width: auto; min-width: 60px; padding: 2px 6px;
+  font-size: 10.5px; border-radius: 5px; border-width: 1px;
+  background: #1a2812; border-color: #2e4020; color: #8ab870;
+}
+.plot-card-controls select:focus { border-color: #7ab050; box-shadow: none; }
+
+.plot-body { background: #111a0c; }
+.plotly-chart   { width: 100%; height: 280px; }
+.spectrum-chart { width: 100%; height: 480px; }
+.window-info { font-size: 9.5px; color: #4a6838; padding: 3px 12px 7px; background: #111a0c; font-weight: 500; }
+
+/* ── Marker panel (sidebar) ──────────────────────────── */
+.mk-slots-row { display: grid; grid-template-columns: repeat(4,1fr); gap: 5px; margin-bottom: 8px; }
+.mk-slot-btn {
+  display: flex; align-items: center; justify-content: center; gap: 4px;
+  font-size: 11px; font-weight: 700; padding: 5px 0; border-radius: 6px;
+  border: 1px solid #2a3c1c; background: #141e0c; color: #5a7848;
+  cursor: pointer; font-family: inherit; transition: all 0.15s;
+}
+.mk-slot-btn:hover { border-color: #4a6838; color: #8ab870; background: #1a2812; }
+.mk-slot-btn.mk-enabled { border-color: #3a5428; background: #1c2c14; color: #88b860; }
+.mk-slot-btn.mk-active {
+  border-color: var(--mk-c, #8ab870); color: var(--mk-c, #8ab870);
+  background: rgba(255,255,255,0.04);
+  box-shadow: 0 0 0 1.5px var(--mk-c, #8ab870) inset;
+}
+.mk-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.mk-delta-row { display: flex; align-items: center; gap: 7px; margin-bottom: 8px; }
+.mk-chk-lbl { display: flex; align-items: center; gap: 5px; cursor: pointer; font-size: 11px; color: #7a9870; font-weight: 600; white-space: nowrap; }
+.mk-chk-lbl input { accent-color: #7ab050; cursor: pointer; }
+.mk-delta-sel { flex: 1; font-size: 10.5px; }
+.mk-delta-sel:disabled { opacity: 0.35; }
+.mk-readings table { width: 100%; border-collapse: collapse; font-size: 10px; margin-bottom: 4px; }
+.mk-readings th { font-size: 9px; color: #4a6838; font-weight: 700; padding: 3px 5px 4px; border-bottom: 1px solid #1e2a14; text-align: left; letter-spacing: 0.04em; }
+.mk-readings td { padding: 2px 5px; color: #8ac878; border-bottom: 1px solid #141e0c; font-variant-numeric: tabular-nums; }
+.mk-readings td.mk-id { font-weight: 700; width: 22px; }
+.mk-readings tr.mk-drow td { color: #c89830; font-size: 9.5px; }
+.mk-hint { font-size: 9.5px; color: #5a9850; padding: 3px 0 0; min-height: 14px; }
+.plotly-chart.mk-xhair, .spectrum-chart.mk-xhair { cursor: crosshair !important; }
+
+/* ── Responsive ─────────────────────────────────────── */
+@media (max-width: 860px) {
+  .main-layout { grid-template-columns: 1fr; }
+  .plots-grid { grid-template-columns: 1fr !important; }
+  .plot-card.full-width { grid-column: 1; }
+}
+</style>
+</head>
+<body>
+
+<div class="app-card">
+
+  <!-- Page title -->
+  <div class="page-title">IQ Analyzer</div>
+  <div class="page-subtitle">Upload an IQ capture file, configure signal parameters, then select plots to display.</div>
+
+  <!-- Main two-column layout -->
+  <div class="main-layout">
+
+    <!-- ── LEFT SIDEBAR ──────────────────────────────── -->
+    <div class="sidebar">
+
+      <!-- Control desk panel -->
+      <div class="panel">
+        <div class="panel-title">Control Desk</div>
+        <div class="panel-desc">Upload data, set signal parameters, then analyze.</div>
+
+        <!-- Drop / upload -->
+        <div class="upload-box" id="uploadBox" onclick="document.getElementById('fileInput').click()">
+          <input type="file" id="fileInput" accept="*">
+          <div class="upload-box-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="17 8 12 3 7 8"/>
+              <line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+          </div>
+          <div class="upload-label">Upload your IQ file</div>
+          <div class="upload-sub">Hex text · CF32 · CF64 · CS16 · CS8 · CU8</div>
+          <div class="file-chosen" id="fileName">No file chosen</div>
+        </div>
+
+        <!-- Format -->
+        <div class="form-row">
+          <label class="form-label">Data Format</label>
+          <select id="dataFormat">
+            <option value="hex16" selected>Hex Text (0x I/Q int16)</option>
+            <option value="float32">float32 — CF32</option>
+            <option value="float64">float64 — CF64</option>
+            <option value="int16">int16 binary — CS16</option>
+            <option value="int8">int8 binary — CS8</option>
+            <option value="uint8">uint8 binary — CU8</option>
+          </select>
+        </div>
+
+        <!-- Sample rate + center freq -->
+        <div class="form-row-2" style="margin-bottom:8px">
+          <div>
+            <label class="form-label">Sample Rate (Hz)</label>
+            <input type="text" id="sampleRate" value="1000000" placeholder="e.g. 1e6">
+          </div>
+          <div>
+            <label class="form-label">Center Freq (Hz)</label>
+            <input type="text" id="centerFreq" value="0" placeholder="e.g. 915e6">
+          </div>
+        </div>
+
+        <!-- Sample range -->
+        <div class="form-row">
+          <label class="form-label">Sample Range</label>
+          <div class="range-row">
+            <input type="number" id="sampleStart" value="0" min="0" placeholder="Start">
+            <span class="range-sep">→</span>
+            <input type="number" id="sampleEnd" value="" placeholder="End (all)">
+          </div>
+        </div>
+
+        <!-- Swap I/Q -->
+        <div class="form-row" style="margin-top:2px">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;color:#8ab870;font-size:0.78rem;font-weight:500">
+            <input type="checkbox" id="swapIQ" onchange="applySwap()" style="accent-color:#5aab28;width:13px;height:13px;cursor:pointer">
+            Swap I/Q channels
+          </label>
+        </div>
+
+        <!-- Analyze -->
+        <button class="btn-analyze" id="analyzeBtn" onclick="analyze()" disabled>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          Analyze
+        </button>
+        <button class="btn-reset" onclick="resetAll()">Reset</button>
+
+        <div id="status" class="status-info"></div>
+      </div>
+
+      <!-- Stats panel (hidden until data loaded) -->
+      <div class="panel" id="statsPanel" style="display:none">
+        <div class="panel-title" style="margin-bottom:8px">Signal Stats</div>
+        <div class="stats-grid">
+          <div class="stat-mini"><div class="stat-mini-label">Samples</div><div class="stat-mini-val" id="st-samples">—</div></div>
+          <div class="stat-mini"><div class="stat-mini-label">Duration</div><div class="stat-mini-val" id="st-duration">—</div></div>
+          <div class="stat-mini"><div class="stat-mini-label">Sample Rate</div><div class="stat-mini-val" id="st-fs">—</div></div>
+          <div class="stat-mini"><div class="stat-mini-label">Center Freq</div><div class="stat-mini-val" id="st-fc">—</div></div>
+          <div class="stat-mini"><div class="stat-mini-label">Mean Power</div><div class="stat-mini-val" id="st-power">—</div></div>
+          <div class="stat-mini"><div class="stat-mini-label">Peak Power</div><div class="stat-mini-val" id="st-peak">—</div></div>
+          <div class="stat-mini"><div class="stat-mini-label">Mean Amp</div><div class="stat-mini-val" id="st-amp">—</div></div>
+          <div class="stat-mini"><div class="stat-mini-label">DC I / Q</div><div class="stat-mini-val" id="st-dc">—</div></div>
+        </div>
+      </div>
+
+      <!-- Marker panel (hidden until data loaded) -->
+      <div class="panel" id="markerPanel" style="display:none">
+        <div class="panel-title" style="margin-bottom:8px">Markers</div>
+        <div class="mk-slots-row">
+          <button class="mk-slot-btn" id="mk-btn-0" onclick="mkToggle(0)"><span class="mk-dot" style="background:#ffcc44"></span>M1</button>
+          <button class="mk-slot-btn" id="mk-btn-1" onclick="mkToggle(1)"><span class="mk-dot" style="background:#44b8ff"></span>M2</button>
+          <button class="mk-slot-btn" id="mk-btn-2" onclick="mkToggle(2)"><span class="mk-dot" style="background:#ff6688"></span>M3</button>
+          <button class="mk-slot-btn" id="mk-btn-3" onclick="mkToggle(3)"><span class="mk-dot" style="background:#44ddaa"></span>M4</button>
+        </div>
+        <div class="mk-delta-row">
+          <label class="mk-chk-lbl">
+            <input type="checkbox" id="mkDeltaChk" onchange="mkUpdateDelta()">
+            Δ Delta
+          </label>
+          <select id="mkDeltaRef" class="mk-delta-sel form-select" onchange="mkRefreshAll()" disabled>
+            <option value="0">vs M1</option><option value="1">vs M2</option>
+            <option value="2">vs M3</option><option value="3">vs M4</option>
+          </select>
+        </div>
+        <div id="mkReadings" class="mk-readings"></div>
+        <div id="mkHint" class="mk-hint"></div>
+      </div>
+
+    </div><!-- /sidebar -->
+
+    <!-- ── RIGHT PLOT AREA ───────────────────────────── -->
+    <div class="plot-area">
+
+      <!-- Drop zone (shown before analyze) -->
+      <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+        <div class="dz-icon-wrap">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#6a9048" stroke-width="1.8">
+            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+          </svg>
+        </div>
+        <div class="dz-title">Drop IQ file here or use the upload panel</div>
+        <div class="dz-sub">Supports Hex Text (0x####) · CF32 · CF64 · CS16 · CS8 · CU8</div>
+      </div>
+
+      <!-- Plot container (shown after analyze) -->
+      <div class="plot-container" id="plotContainer" style="display:none">
+
+        <!-- Plot type dropdown -->
+        <div class="plot-selector-row">
+          <span class="plot-selector-label">Plot Type</span>
+          <select class="plot-type-select" id="plotTypeSelect" onchange="switchPlot(this.value)">
+            <option value="abs">📈  Magnitude  |I + jQ|</option>
+            <option value="iq">〰  Real (I) &amp; Imaginary (Q)</option>
+            <option value="spectrum">📡  Spectrum Analyzer — PSD</option>
+            <option value="phase">🔄  Instantaneous Phase</option>
+            <option value="const">⊙  IQ Constellation</option>
+          </select>
+        </div>
+
+        <!-- Plots grid — single active plot fills full width -->
+        <div class="plots-grid cols-1" id="plotsGrid">
+
+          <!-- Magnitude -->
+          <div class="plot-card" id="cardAbs">
+            <div class="plot-card-header">
+              <span class="plot-card-title"><span class="tdot" style="background:#4a9eff"></span>Magnitude |I + jQ|</span>
+              <div class="plot-card-controls">
+                <label>Decimate</label>
+                <select id="tdecimate" onchange="updateTimePlots()">
+                  <option value="1">1×</option><option value="2">2×</option><option value="4">4×</option>
+                  <option value="8">8×</option><option value="16" selected>16×</option>
+                  <option value="32">32×</option><option value="64">64×</option>
+                </select>
+              </div>
+            </div>
+            <div class="plot-body"><div class="plotly-chart" id="plotAbs"></div></div>
+          </div>
+
+          <!-- Real / Imag -->
+          <div class="plot-card" id="cardIQ">
+            <div class="plot-card-header">
+              <span class="plot-card-title"><span class="tdot" style="background:#48d068"></span>Real (I) &amp; Imaginary (Q)</span>
+              <div class="plot-card-controls">
+                <label>Show</label>
+                <select id="riqShow" onchange="updateTimePlots()">
+                  <option value="both">I &amp; Q</option>
+                  <option value="I">I only</option>
+                  <option value="Q">Q only</option>
+                </select>
+              </div>
+            </div>
+            <div class="plot-body"><div class="plotly-chart" id="plotIQ"></div></div>
+          </div>
+
+          <!-- Spectrum -->
+          <div class="plot-card" id="cardSpectrum">
+            <div class="plot-card-header">
+              <span class="plot-card-title"><span class="tdot" style="background:#c87eff"></span>Spectrum Analyzer — PSD</span>
+              <div class="plot-card-controls">
+                <label>FFT</label>
+                <select id="fftSize" onchange="updateSpectrum()">
+                  <option value="256">256</option><option value="512">512</option>
+                  <option value="1024" selected>1024</option><option value="2048">2048</option>
+                  <option value="4096">4096</option><option value="8192">8192</option>
+                </select>
+                <label>Win</label>
+                <select id="fftWindow" onchange="updateSpectrum()">
+                  <option value="hann" selected>Hann</option><option value="hamming">Hamming</option>
+                  <option value="blackman">Blackman</option><option value="flat_top">Flat Top</option>
+                  <option value="rect">Rect</option>
+                </select>
+                <label>Avg</label>
+                <select id="fftAvg" onchange="updateSpectrum()">
+                  <option value="1">1</option><option value="4">4</option>
+                  <option value="8" selected>8</option><option value="16">16</option>
+                  <option value="32">32</option><option value="max">Max</option>
+                </select>
+                <label>Scale</label>
+                <select id="specScale" onchange="updateSpectrum()">
+                  <option value="dBFS" selected>dBFS</option>
+                  <option value="dBm">dBm/Hz</option><option value="linear">Linear</option>
+                </select>
+              </div>
+            </div>
+            <div class="plot-body"><div class="spectrum-chart" id="plotSpectrum"></div></div>
+            <div class="window-info" id="windowInfo"></div>
+          </div>
+
+          <!-- Phase -->
+          <div class="plot-card" id="cardPhase">
+            <div class="plot-card-header">
+              <span class="plot-card-title"><span class="tdot" style="background:#ffaa40"></span>Instantaneous Phase</span>
+            </div>
+            <div class="plot-body"><div class="plotly-chart" id="plotPhase"></div></div>
+          </div>
+
+          <!-- Constellation -->
+          <div class="plot-card" id="cardConst">
+            <div class="plot-card-header">
+              <span class="plot-card-title"><span class="tdot" style="background:#40d4e8"></span>IQ Constellation</span>
+              <div class="plot-card-controls">
+                <label>Points</label>
+                <select id="constMax" onchange="updateConstellation()">
+                  <option value="2000">2K</option><option value="5000" selected>5K</option>
+                  <option value="10000">10K</option><option value="50000">50K</option>
+                </select>
+              </div>
+            </div>
+            <div class="plot-body"><div class="plotly-chart" id="plotConst"></div></div>
+          </div>
+
+        </div><!-- /plots-grid -->
+      </div><!-- /plot-container -->
+
+    </div><!-- /plot-area -->
+  </div><!-- /main-layout -->
+</div><!-- /app-card -->
+
+<script>
+// ── Global state ─────────────────────────────────────────────────────────────
+let gI = null, gQ = null, gIorig = null, gQorig = null, gFs = 1e6, gFc = 0;
+// ── Marker state ──────────────────────────────────────────────────────────────
+const MK_COLORS = ['#ffcc44','#44b8ff','#ff6688','#44ddaa'];
+const MK_PIDS   = {abs:'plotAbs',iq:'plotIQ',spectrum:'plotSpectrum',phase:'plotPhase',const:'plotConst'};
+const mkSlots   = {};
+['abs','iq','spectrum','phase','const'].forEach(k => {
+  mkSlots[k] = [0,1,2,3].map(i => ({idx:i, enabled:false, placed:false, x:null, y:null}));
+});
+let mkActive    = null;   // {plotKey, idx} – the slot currently awaiting placement
+let mkDelta     = false;
+let mkDeltaRef  = 0;      // index 0-3
+const mkRegs    = new Set(); // plot div IDs that already have plotly_click registered
+
+// Currently displayed plot key
+let activePlot = 'abs';
+
+// Remembered x-axis sample-index range for time-domain plots (null = full range)
+let tdXRange = null;
+
+const PLOTS = {
+  abs:      { cardId:'cardAbs',      render:()=>updateTimePlots()     },
+  iq:       { cardId:'cardIQ',       render:()=>updateTimePlots()     },
+  spectrum: { cardId:'cardSpectrum', render:()=>updateSpectrum()      },
+  phase:    { cardId:'cardPhase',    render:()=>updatePhase()         },
+  const:    { cardId:'cardConst',    render:()=>updateConstellation() },
+};
+const TD_PLOTS = new Set(['abs','iq']); // share x-axis range memory
+
+// ── Plotly dark theme for plot cards ─────────────────────────────────────────
+const PLOT_BG  = '#111a0c';
+const PAPER_BG = '#111a0c';
+const GRID_CLR = '#1e2a14';
+const ZERO_CLR = '#2a3c1c';
+const AXIS_CLR = '#4a6838';
+const COLORS = {
+  abs:   '#4a9eff',
+  real:  '#48d068',
+  imag:  '#ff6060',
+  phase: '#ffaa40',
+  spec:  '#a0d0ff',
+  peak:  '#c87eff',
+};
+
+const baseLayout = {
+  paper_bgcolor: PAPER_BG,
+  plot_bgcolor:  PLOT_BG,
+  font: { color: AXIS_CLR, size: 10, family: 'Sora, Segoe UI, sans-serif' },
+  margin: { l: 52, r: 14, t: 10, b: 40 },
+  xaxis: { gridcolor: GRID_CLR, linecolor: ZERO_CLR, zerolinecolor: ZERO_CLR,
+           tickfont: { size: 9, color: AXIS_CLR }, gridwidth: 1 },
+  yaxis: { gridcolor: GRID_CLR, linecolor: ZERO_CLR, zerolinecolor: ZERO_CLR,
+           tickfont: { size: 9, color: AXIS_CLR }, gridwidth: 1 },
+  legend: { bgcolor: '#1a2812', bordercolor: '#2e4020', borderwidth: 1,
+            font: { size: 9, color: AXIS_CLR } },
+  hovermode: 'x unified',
+  hoverlabel: { bgcolor: '#1e3012', bordercolor: '#5a8040', font: { color: '#c0e8a0', size: 10 } },
+};
+const plotCfg = { responsive:true, displayModeBar:true, displaylogo:false,
+  modeBarButtonsToRemove:['toImage','sendDataToCloud'] };
+
+// ── File handling ─────────────────────────────────────────────────────────────
+document.getElementById('fileInput').addEventListener('change', e => {
+  const f = e.target.files[0]; if (f) onFileSelected(f);
+});
+const uploadBox = document.getElementById('uploadBox');
+const dropZoneEl = document.getElementById('dropZone');
+[uploadBox, dropZoneEl].forEach(el => {
+  el.addEventListener('dragover',  e => { e.preventDefault(); el.classList.add('drag-over'); });
+  el.addEventListener('dragleave', ()  => el.classList.remove('drag-over'));
+  el.addEventListener('drop', e => {
+    e.preventDefault(); el.classList.remove('drag-over');
+    const f = e.dataTransfer.files[0]; if (f) onFileSelected(f);
+  });
+});
+
+function onFileSelected(file) {
+  document.getElementById('fileName').textContent = file.name;
+  document.getElementById('analyzeBtn').disabled = false;
+  setStatus(`Ready: ${file.name} (${fmtSize(file.size)})`, 'info');
+  const ext = file.name.toLowerCase().split('.').pop();
+  const fmtMap = { cf32:'float32',fc32:'float32',cs16:'int16',sc16:'int16',
+                   cs8:'int8',sc8:'int8',cu8:'uint8',iq:'float32',
+                   txt:'hex16',hex:'hex16',dat:'hex16' };
+  if (fmtMap[ext]) document.getElementById('dataFormat').value = fmtMap[ext];
+  else file.slice(0,32).text().then(s => {
+    if (/0x[0-9a-fA-F]{1,4}/.test(s)) document.getElementById('dataFormat').value = 'hex16';
+  });
+  document.getElementById('fileInput')._file = file;
+}
+
+// ── Analyze ───────────────────────────────────────────────────────────────────
+async function analyze() {
+  const fileInput = document.getElementById('fileInput');
+  const file = fileInput._file || (fileInput.files && fileInput.files[0]);
+  if (!file) { setStatus('No file selected', 'err'); return; }
+
+  const fmt = document.getElementById('dataFormat').value;
+  gFs = parseScientific(document.getElementById('sampleRate').value);
+  gFc = parseScientific(document.getElementById('centerFreq').value);
+  if (!gFs || gFs <= 0) { setStatus('Invalid sample rate', 'err'); return; }
+
+  setStatus('Reading…', 'info');
+  document.getElementById('analyzeBtn').disabled = true;
+
+  try {
+    let I, Q;
+    if (fmt === 'hex16') { [I,Q] = parseHexIQ(await file.text()); }
+    else                 { [I,Q] = parseIQ(await file.arrayBuffer(), fmt); }
+
+    const start = parseInt(document.getElementById('sampleStart').value) || 0;
+    const endR  = document.getElementById('sampleEnd').value;
+    const end   = endR ? Math.min(parseInt(endR), I.length) : I.length;
+    gIorig = I.slice(start, end); gQorig = Q.slice(start, end);
+    applySwap(false); // sets gI/gQ from originals
+
+    if (gI.length === 0) { setStatus('No samples in range', 'err'); return; }
+
+    setStatus(`${gI.length.toLocaleString()} samples parsed (${fmt})`, 'ok');
+    showStats();
+    tdXRange = null; // reset zoom memory for new file
+    dropZoneEl.style.display = 'none';
+    document.getElementById('plotContainer').style.display = 'flex';
+    document.getElementById('statsPanel').style.display = '';
+    document.getElementById('markerPanel').style.display = '';
+    // Show whatever plot is currently selected in the dropdown
+    activePlot = document.getElementById('plotTypeSelect').value;
+    refreshLayout();
+    renderVisible();
+
+  } catch (err) {
+    setStatus('Error: ' + err.message, 'err');
+    console.error(err);
+  }
+  document.getElementById('analyzeBtn').disabled = false;
+}
+
+// ── IQ parsers ────────────────────────────────────────────────────────────────
+function parseIQ(buf, fmt) {
+  let I, Q;
+  switch(fmt) {
+    case 'float32': { const f=new Float32Array(buf),n=Math.floor(f.length/2);
+      I=new Float32Array(n);Q=new Float32Array(n);for(let i=0;i<n;i++){I[i]=f[2*i];Q[i]=f[2*i+1];}break; }
+    case 'float64': { const f=new Float64Array(buf),n=Math.floor(f.length/2);
+      I=new Float64Array(n);Q=new Float64Array(n);for(let i=0;i<n;i++){I[i]=f[2*i];Q[i]=f[2*i+1];}break; }
+    case 'int16': { const f=new Int16Array(buf),n=Math.floor(f.length/2),sc=1/32768;
+      I=new Float32Array(n);Q=new Float32Array(n);for(let i=0;i<n;i++){I[i]=f[2*i]*sc;Q[i]=f[2*i+1]*sc;}break; }
+    case 'int8': { const f=new Int8Array(buf),n=Math.floor(f.length/2),sc=1/128;
+      I=new Float32Array(n);Q=new Float32Array(n);for(let i=0;i<n;i++){I[i]=f[2*i]*sc;Q[i]=f[2*i+1]*sc;}break; }
+    case 'uint8': { const f=new Uint8Array(buf),n=Math.floor(f.length/2);
+      I=new Float32Array(n);Q=new Float32Array(n);for(let i=0;i<n;i++){I[i]=f[2*i]/128-1;Q[i]=f[2*i+1]/128-1;}break; }
+    default: throw new Error('Unknown format: '+fmt);
+  }
+  return [I,Q];
+}
+function parseHexIQ(text) {
+  const re=/0x([0-9a-fA-F]{1,4})|(?<![0-9a-fA-F])([0-9a-fA-F]{4})(?![0-9a-fA-F])/g;
+  const raw=[];let m;
+  while((m=re.exec(text))!==null){const h=m[1]!==undefined?m[1]:m[2];let v=parseInt(h,16);if(v>0x7FFF)v-=0x10000;raw.push(v);}
+  if(raw.length<2) throw new Error('No valid 0x#### hex tokens found');
+  if(raw.length%2!==0) raw.pop();
+  const n=raw.length>>1,sc=1/32768;
+  const I=new Float32Array(n),Q=new Float32Array(n);
+  for(let i=0;i<n;i++){I[i]=raw[2*i]*sc;Q[i]=raw[2*i+1]*sc;}
+  return [I,Q];
+}
+
+// ── I/Q swap ──────────────────────────────────────────────────────────────────
+function applySwap(rerender = true) {
+  const swap = document.getElementById('swapIQ').checked;
+  gI = swap ? gQorig : gIorig;
+  gQ = swap ? gIorig : gQorig;
+  if (rerender && gI) { showStats(); tdXRange = null; renderVisible(); }
+}
+
+// ── Plot selector ─────────────────────────────────────────────────────────────
+function switchPlot(key) {
+  mkActive = null; // cancel any pending marker placement when switching plots
+  // When leaving a time-domain plot, snapshot the current x-axis range
+  if (TD_PLOTS.has(activePlot) && gI) {
+    const el = document.getElementById(activePlot === 'abs' ? 'plotAbs' : 'plotIQ');
+    const layout = el && el.layout;
+    if (layout && layout.xaxis && layout.xaxis.range) {
+      tdXRange = [...layout.xaxis.range];
+    }
+  }
+  // When switching TO a non-time-domain plot, clear stored range
+  if (!TD_PLOTS.has(key)) tdXRange = null;
+
+  activePlot = key;
+  document.getElementById('plotTypeSelect').value = key;
+  refreshLayout();
+  mkUpdateUI(); // refresh sidebar buttons/readings for the new plot type
+  if (gI) PLOTS[key].render();
+}
+
+// ── Unified marker system ─────────────────────────────────────────────────────
+
+// Toggle slot: disabled→enabled+active, active→keep enabled but cancel placement,
+// enabled+not-active → make active for repositioning
+function mkToggle(idx) {
+  const pk = activePlot;
+  const slot = mkSlots[pk][idx];
+  if (mkActive && mkActive.plotKey === pk && mkActive.idx === idx) {
+    mkActive = null; // cancel placement (marker stays if already placed)
+  } else if (!slot.enabled) {
+    slot.enabled = true;
+    mkActive = { plotKey: pk, idx };
+  } else {
+    mkActive = { plotKey: pk, idx }; // reactivate for repositioning
+  }
+  mkUpdateUI();
+  renderVisible();
+}
+
+function mkDisable(idx) {
+  const pk = activePlot;
+  const slot = mkSlots[pk][idx];
+  slot.enabled = false; slot.placed = false; slot.x = slot.y = null;
+  if (mkActive && mkActive.plotKey === pk && mkActive.idx === idx) mkActive = null;
+  mkUpdateUI();
+  renderVisible();
+}
+
+function mkUpdateDelta() {
+  mkDelta = document.getElementById('mkDeltaChk').checked;
+  document.getElementById('mkDeltaRef').disabled = !mkDelta;
+  mkRefreshAll();
+}
+
+function mkRefreshAll() {
+  mkDeltaRef = parseInt(document.getElementById('mkDeltaRef').value);
+  mkRenderReadings(activePlot);
+  renderVisible();
+}
+
+// Return a Plotly scatter trace (symbol only — labels come from mkGetAnnotations)
+function mkGetTrace(plotKey) {
+  const placed = mkSlots[plotKey].filter(s => s.enabled && s.placed);
+  if (!placed.length) return null;
+  return {
+    x: placed.map(s => s.x), y: placed.map(s => s.y),
+    type: 'scatter', mode: 'markers',
+    marker: {
+      symbol: 'square',
+      size: 8,
+      color: 'rgba(0,0,0,0)',
+      line: { color: placed.map(s => MK_COLORS[s.idx]), width: 2 },
+    },
+    showlegend: false, hoverinfo: 'skip', name: 'Markers',
+  };
+}
+
+// Return Plotly layout annotations — MATLAB-style data-cursor boxes
+function mkGetAnnotations(plotKey) {
+  const placed = mkSlots[plotKey].filter(s => s.enabled && s.placed);
+  if (!placed.length) return [];
+  const {xFmt, yFmt, xUnit, yUnit} = mkUnits(plotKey);
+  const refSlot  = mkDelta ? mkSlots[plotKey][mkDeltaRef] : null;
+  const hasRef   = mkDelta && refSlot && refSlot.placed;
+  // Stagger box offsets so overlapping markers don't stack
+  const OFFSETS  = [[55,-55],[55,55],[-75,-55],[-75,55]];
+  return placed.map((s, i) => {
+    const xu = xUnit ? ' '+xUnit : '';
+    const yu = yUnit ? ' '+yUnit : '';
+    let txt = `<b>M${s.idx+1}</b><br>X: ${xFmt(s.x)}${xu}<br>Y: ${yFmt(s.y)}${yu}`;
+    if (hasRef && s.idx !== mkDeltaRef && refSlot.placed) {
+      const dx = s.x - refSlot.x, dy = s.y - refSlot.y;
+      txt += `<br>ΔX: ${dx>=0?'+':''}${xFmt(dx)}${xu}`;
+      txt += `<br>ΔY: ${dy>=0?'+':''}${yFmt(dy)}${yu}`;
+    }
+    const [ax, ay] = OFFSETS[s.idx] || OFFSETS[0];
+    return {
+      x: s.x, y: s.y, xref: 'x', yref: 'y',
+      text: txt,
+      showarrow: true, arrowhead: 0, arrowsize: 1,
+      arrowwidth: 1.2, arrowcolor: MK_COLORS[s.idx],
+      ax, ay,
+      bgcolor: 'rgba(8,16,6,0.88)',
+      bordercolor: MK_COLORS[s.idx],
+      borderwidth: 1.5, borderpad: 6,
+      font: { size: 10, color: MK_COLORS[s.idx], family: 'monospace' },
+      align: 'left',
+      captureevents: false,
+    };
+  });
+}
+
+// Snap spectrum markers to nearest FFT bin after each spectrum compute
+function mkSnapSpectrum(fArr, yData) {
+  mkSlots['spectrum'].forEach(s => {
+    if (!s.placed) return;
+    let bi = 0, bd = Infinity;
+    for (let i = 0; i < fArr.length; i++) {
+      const d = Math.abs(fArr[i] - s.x);
+      if (d < bd) { bd = d; bi = i; }
+    }
+    s.y = yData[bi];
+  });
+}
+
+// Register plotly_click once per plot div
+function mkRegister(plotKey) {
+  const pid = MK_PIDS[plotKey];
+  if (mkRegs.has(pid)) return;
+  mkRegs.add(pid);
+  document.getElementById(pid).on('plotly_click', function(ev) {
+    if (!mkActive || mkActive.plotKey !== plotKey) return;
+    if (!ev.points || !ev.points.length) return;
+    const pt = ev.points.find(p => p.curveNumber === 0) || ev.points[0];
+    const slot = mkSlots[plotKey][mkActive.idx];
+    slot.x = pt.x; slot.y = pt.y; slot.placed = true;
+    mkActive = null; // auto-exit placement after click
+    mkUpdateUI();
+    renderVisible();
+  });
+}
+
+// Refresh button states, hint text, crosshair cursor, readings
+function mkUpdateUI() {
+  const pk = activePlot;
+  [0,1,2,3].forEach(idx => {
+    const btn = document.getElementById(`mk-btn-${idx}`);
+    const slot = mkSlots[pk][idx];
+    const isAct = !!(mkActive && mkActive.plotKey === pk && mkActive.idx === idx);
+    btn.classList.toggle('mk-enabled', slot.enabled && slot.placed && !isAct);
+    btn.classList.toggle('mk-active', isAct);
+    if (isAct) btn.style.setProperty('--mk-c', MK_COLORS[idx]);
+    else        btn.style.removeProperty('--mk-c');
+  });
+  // Crosshair cursor on the active plot div
+  Object.keys(MK_PIDS).forEach(k => {
+    const el = document.getElementById(MK_PIDS[k]);
+    if (el) el.classList.toggle('mk-xhair', !!(mkActive && mkActive.plotKey === k));
+  });
+  // Hint text
+  const hint = document.getElementById('mkHint');
+  if (hint) hint.textContent = (mkActive && mkActive.plotKey === pk)
+    ? `Click on plot to place M${mkActive.idx + 1}  (or click M${mkActive.idx+1} again to cancel)`
+    : '';
+  mkRenderReadings(pk);
+}
+
+function mkRenderReadings(plotKey) {
+  const div = document.getElementById('mkReadings');
+  if (!div) return;
+  const placed = mkSlots[plotKey].filter(s => s.enabled && s.placed);
+  if (!placed.length) { div.innerHTML = ''; return; }
+
+  const {xHdr, yHdr, xFmt, yFmt} = mkUnits(plotKey);
+  const refSlot = mkDelta ? mkSlots[plotKey][mkDeltaRef] : null;
+  const hasRef  = mkDelta && refSlot && refSlot.placed;
+
+  let html = `<table><thead><tr><th>#</th><th>${xHdr}</th><th>${yHdr}</th></tr></thead><tbody>`;
+  placed.forEach(s => {
+    const c = MK_COLORS[s.idx];
+    html += `<tr>
+      <td class="mk-id" style="color:${c}">M${s.idx+1}
+        <span style="float:right;cursor:pointer;color:#4a3028;font-size:10px" onclick="mkDisable(${s.idx})">✕</span>
+      </td>
+      <td>${xFmt(s.x)}</td><td>${yFmt(s.y)}</td></tr>`;
+    if (hasRef && s.idx !== mkDeltaRef && refSlot.placed) {
+      const dx = s.x - refSlot.x, dy = s.y - refSlot.y;
+      html += `<tr class="mk-drow">
+        <td style="color:${c};opacity:.7">Δ${s.idx+1}</td>
+        <td>${dx >= 0 ? '+' : ''}${xFmt(dx)}</td>
+        <td>${dy >= 0 ? '+' : ''}${yFmt(dy)}</td></tr>`;
+    }
+  });
+  html += '</tbody></table>';
+  div.innerHTML = html;
+}
+
+function mkUnits(plotKey) {
+  const noop = v => v != null ? v.toFixed(3) : '—';
+  switch (plotKey) {
+    case 'abs':
+    case 'iq':   return { xHdr:'Sample', yHdr:'Amp', xUnit:'', yUnit:'',
+                          xFmt: v => Math.round(v).toLocaleString(),
+                          yFmt: v => v != null ? v.toFixed(2) : '—' };
+    case 'spectrum': {
+      const sc = document.getElementById('specScale').value;
+      const fUnit = gFs > 1e6 ? 'MHz' : gFs > 1e3 ? 'kHz' : 'Hz';
+      const yU = sc === 'dBm' ? 'dBm/Hz' : sc === 'dBFS' ? 'dBFS' : '';
+      return { xHdr:`Freq (${fUnit})`, yHdr: yU, xUnit: fUnit, yUnit: yU,
+               xFmt: v => v != null ? v.toFixed(3) : '—',
+               yFmt: v => v != null ? v.toFixed(2) : '—' };
+    }
+    case 'phase': return { xHdr:'Time (s)', yHdr:'Phase (°)', xUnit:'s', yUnit:'°',
+                           xFmt: v => v != null ? v.toExponential(3) : '—',
+                           yFmt: v => v != null ? v.toFixed(1) : '—' };
+    case 'const': return { xHdr:'I', yHdr:'Q', xUnit:'', yUnit:'',
+                           xFmt: noop, yFmt: noop };
+    default:      return { xHdr:'X', yHdr:'Y', xUnit:'', yUnit:'',
+                           xFmt: noop, yFmt: noop };
+  }
+}
+
+function refreshLayout() {
+  Object.entries(PLOTS).forEach(([key, def]) => {
+    document.getElementById(def.cardId).style.display = key === activePlot ? '' : 'none';
+  });
+}
+
+function renderVisible() {
+  PLOTS[activePlot].render();
+}
+
+// ── Time domain ───────────────────────────────────────────────────────────────
+function updateTimePlots() {
+  if (!gI) return;
+  const dec = parseInt(document.getElementById('tdecimate').value);
+  const fmt = document.getElementById('dataFormat').value;
+  const dsc = fmt === 'hex16' ? 32768 : 1;
+  const yLbl = fmt === 'hex16' ? 'Amplitude (int16 LSB)' : 'Amplitude';
+  const n = gI.length, len = Math.ceil(n / dec);
+
+  // X-axis is sample index (not time), so viewers can relate values to exact sample numbers
+  const sIdx = new Float32Array(len); // sample index at each decimated point
+  const mag  = new Float32Array(len);
+  const iD   = new Float32Array(len);
+  const qD   = new Float32Array(len);
+
+  for (let i = 0; i < len; i++) {
+    const idx = i * dec;
+    let sm = 0, si = 0, sq = 0, cnt = 0;
+    for (let d = 0; d < dec && idx + d < n; d++) {
+      si += gI[idx+d]; sq += gQ[idx+d];
+      sm += Math.hypot(gI[idx+d], gQ[idx+d]);
+      cnt++;
+    }
+    sIdx[i] = idx;                    // sample index of this bin
+    mag[i]  = (sm / cnt) * dsc;
+    iD[i]   = (si / cnt) * dsc;
+    qD[i]   = (sq / cnt) * dsc;
+  }
+
+  const xArr = Array.from(sIdx);
+
+  // Build xaxis config — restore remembered zoom range if available
+  const xAxisCfg = {
+    ...baseLayout.xaxis,
+    title: { text: `Sample Index  (${dec}× decimated, ${n.toLocaleString()} total)`, font: { size: 10, color: AXIS_CLR } },
+    tickformat: 'd',
+    ...(tdXRange ? { range: tdXRange } : {}),
+  };
+
+  const onRelayout = (plotDivId) => {
+    const div = document.getElementById(plotDivId);
+    div.on('plotly_relayout', ev => {
+      if (ev['xaxis.range[0]'] !== undefined) {
+        tdXRange = [ev['xaxis.range[0]'], ev['xaxis.range[1]']];
+      } else if (ev['xaxis.autorange']) {
+        tdXRange = null;
+      }
+    });
+  };
+
+  if (activePlot === 'abs') {
+    const magArr = Array.from(mag);
+    const mkT = mkGetTrace('abs');
+    Plotly.react('plotAbs', [
+      { x: xArr, y: magArr, type: 'scattergl', mode: 'lines',
+        line: { color: COLORS.abs, width: 1.5 }, name: '|IQ|' },
+      ...(mkT ? [mkT] : []),
+    ], {
+      ...baseLayout,
+      xaxis: xAxisCfg,
+      yaxis: { ...baseLayout.yaxis, title: { text: yLbl, font: { size: 10, color: AXIS_CLR } } },
+      annotations: mkGetAnnotations('abs'),
+    }, plotCfg);
+    onRelayout('plotAbs');
+    mkRegister('abs');
+  }
+
+  if (activePlot === 'iq') {
+    const show = document.getElementById('riqShow').value;
+    const traces = [];
+    if (show === 'both' || show === 'I')
+      traces.push({ x: xArr, y: Array.from(iD), type: 'scattergl', mode: 'lines',
+        line: { color: COLORS.real, width: 1.5 }, name: 'I (Real)' });
+    if (show === 'both' || show === 'Q')
+      traces.push({ x: xArr, y: Array.from(qD), type: 'scattergl', mode: 'lines',
+        line: { color: COLORS.imag, width: 1.5 }, name: 'Q (Imag)' });
+    const mkT = mkGetTrace('iq');
+    if (mkT) traces.push(mkT);
+    Plotly.react('plotIQ', traces, {
+      ...baseLayout,
+      xaxis: xAxisCfg,
+      yaxis: { ...baseLayout.yaxis, title: { text: yLbl, font: { size: 10, color: AXIS_CLR } } },
+      annotations: mkGetAnnotations('iq'),
+    }, plotCfg);
+    onRelayout('plotIQ');
+    mkRegister('iq');
+  }
+  mkUpdateUI();
+}
+
+// ── Spectrum ──────────────────────────────────────────────────────────────────
+function updateSpectrum() {
+  if(!gI) return;
+  const N=parseInt(document.getElementById('fftSize').value);
+  const win=document.getElementById('fftWindow').value;
+  const avgS=document.getElementById('fftAvg').value;
+  const scale=document.getElementById('specScale').value;
+  const n=gI.length,maxAvg=Math.floor(n/N);
+  const avgCount=avgS==='max'?Math.max(1,maxAvg):Math.min(parseInt(avgS),Math.max(1,maxAvg));
+  const wC=makeWindow(win,N),wP=wC.reduce((s,v)=>s+v*v,0)/N;
+  const psd=new Float64Array(N);
+  for(let a=0;a<avgCount;a++){
+    const off=Math.floor((n-N)*a/Math.max(1,avgCount-1));
+    const re=new Float64Array(N),im=new Float64Array(N);
+    for(let i=0;i<N;i++){re[i]=gI[off+i]*wC[i];im[i]=gQ[off+i]*wC[i];}
+    fft(re,im);
+    for(let i=0;i<N;i++) psd[i]+=re[i]*re[i]+im[i]*im[i];
+  }
+  const half=N>>1;
+  // Monotonic frequency axis: −Fs/2 … 0 … +Fs/2 (no discontinuity)
+  const freqs=new Float64Array(N);
+  for(let i=0;i<N;i++) freqs[i]=gFc+(i-half)*gFs/N;
+  // FFT-shift PSD so it aligns with freqs above
+  const psdS=new Float64Array(N);
+  for(let i=0;i<N;i++) psdS[i]=psd[(i+half)%N]/avgCount;
+  let yData,yLabel;
+  if(scale==='dBFS'){yData=Array.from(psdS,v=>10*Math.log10(v/(N*N*wP)+1e-30));yLabel='dBFS';}
+  // dBm/Hz matches MATLAB pwelch output (divide by Fs×N×wP not N²×wP)
+  else if(scale==='dBm'){yData=Array.from(psdS,v=>10*Math.log10(v/(gFs*N*wP)+1e-30)+30);yLabel='dBm/Hz';}
+  else{yData=Array.from(psdS,v=>Math.sqrt(v/(N*N*wP)));yLabel='Amplitude';}
+  const div=gFs>1e6?1e6:gFs>1e3?1e3:1,fUnit=gFs>1e6?'MHz':gFs>1e3?'kHz':'Hz';
+  const fArr=Array.from(freqs).map(f=>f/div);
+  // Snap spectrum markers to nearest bin so readings stay accurate after param changes
+  mkSnapSpectrum(fArr, yData);
+  const mkT = mkGetTrace('spectrum');
+  Plotly.react('plotSpectrum', [
+    { x: fArr, y: yData, type: 'scattergl', mode: 'lines',
+      line: { color: COLORS.spec, width: 1.2 }, name: 'PSD' },
+    ...(mkT ? [mkT] : []),
+  ], {
+    ...baseLayout,
+    margin: { l: 56, r: 20, t: 16, b: 52 },
+    xaxis: { ...baseLayout.xaxis, title: { text: `Frequency (${fUnit})`, font: { size: 10, color: AXIS_CLR } }, zeroline: false },
+    yaxis: { ...baseLayout.yaxis, title: { text: yLabel, font: { size: 10, color: AXIS_CLR } }, zeroline: false },
+    showlegend: false,
+    annotations: mkGetAnnotations('spectrum'),
+  }, plotCfg);
+  mkRegister('spectrum');
+  mkUpdateUI();
+  document.getElementById('windowInfo').textContent =
+    `FFT: ${N} pts  ·  ${win}  ·  ${avgCount} averages  ·  ${(gFs/N).toFixed(1)} Hz/bin`;
+}
+
+// ── Phase ──────────────────────────────────────────────────────────────────────
+function updatePhase() {
+  if(!gI) return;
+  const dec=16,n=gI.length,len=Math.ceil(n/dec);
+  const t=new Float32Array(len),ph=new Float32Array(len);
+  for(let i=0;i<len;i++){const idx=i*dec;t[i]=idx/gFs;ph[i]=Math.atan2(gQ[idx],gI[idx])*180/Math.PI;}
+  const mkT=mkGetTrace('phase');
+  Plotly.react('plotPhase',[
+    {x:Array.from(t),y:Array.from(ph),type:'scattergl',mode:'lines',
+     line:{color:COLORS.phase,width:1.5},name:'Phase'},
+    ...(mkT?[mkT]:[]),
+  ],
+    {...baseLayout,
+     xaxis:{...baseLayout.xaxis,title:{text:'Time (s)',font:{size:10,color:AXIS_CLR}}},
+     yaxis:{...baseLayout.yaxis,title:{text:'Phase (°)',font:{size:10,color:AXIS_CLR}},
+            tickvals:[-180,-90,0,90,180],range:[-195,195]},
+     annotations: mkGetAnnotations('phase'),
+    },plotCfg);
+  mkRegister('phase'); mkUpdateUI();
+}
+
+// ── Constellation ──────────────────────────────────────────────────────────────
+function updateConstellation() {
+  if(!gI) return;
+  const maxPts=parseInt(document.getElementById('constMax').value);
+  const step=Math.max(1,Math.floor(gI.length/maxPts));
+  const xi=[],xq=[],mag=[];
+  for(let i=0;i<gI.length;i+=step){xi.push(gI[i]);xq.push(gQ[i]);mag.push(Math.hypot(gI[i],gQ[i]));}
+  const mkT=mkGetTrace('const');
+  Plotly.react('plotConst',[
+    {x:xi,y:xq,type:'scattergl',mode:'markers',
+      marker:{color:mag,colorscale:[[0,'#0a3060'],[0.5,'#4a9eff'],[1,'#c0f0ff']],
+        size:2.5,opacity:0.8,
+        colorbar:{thickness:8,len:0.7,tickfont:{size:8,color:AXIS_CLR},
+          title:{text:'|IQ|',font:{size:9,color:AXIS_CLR},side:'right'}}},
+      name:'IQ'},
+    ...(mkT?[mkT]:[]),
+  ],
+    {...baseLayout,
+     xaxis:{...baseLayout.xaxis,title:{text:'I',font:{size:10,color:AXIS_CLR}},scaleanchor:'y',scaleratio:1},
+     yaxis:{...baseLayout.yaxis,title:{text:'Q',font:{size:10,color:AXIS_CLR}}},
+     hovermode:'closest',
+     annotations: mkGetAnnotations('const'),
+    },plotCfg);
+  mkRegister('const'); mkUpdateUI();
+}
+
+// ── Stats ──────────────────────────────────────────────────────────────────────
+function showStats() {
+  const n=gI.length;let sp=0,pp=0,sa=0,si=0,sq=0;
+  for(let i=0;i<n;i++){const p=gI[i]*gI[i]+gQ[i]*gQ[i];if(p>pp)pp=p;sp+=p;sa+=Math.sqrt(p);si+=gI[i];sq+=gQ[i];}
+  const fmt=document.getElementById('dataFormat').value,rs=fmt==='hex16'?32768:1,u=fmt==='hex16'?' LSB':'',dp=fmt==='hex16'?1:4;
+  document.getElementById('st-samples').textContent = n.toLocaleString();
+  document.getElementById('st-duration').textContent= fmtTime(n/gFs);
+  document.getElementById('st-fs').textContent      = fmtHz(gFs);
+  document.getElementById('st-fc').textContent      = gFc?fmtHz(gFc):'—';
+  document.getElementById('st-power').textContent   = (10*Math.log10(sp/n+1e-30)).toFixed(2)+' dBFS';
+  document.getElementById('st-peak').textContent    = (10*Math.log10(pp+1e-30)).toFixed(2)+' dBFS';
+  document.getElementById('st-amp').textContent     = (sa/n*rs).toFixed(dp)+u;
+  document.getElementById('st-dc').textContent      = `${(si/n*rs).toFixed(dp)} / ${(sq/n*rs).toFixed(dp)}`;
+}
+
+// ── FFT ────────────────────────────────────────────────────────────────────────
+function fft(re,im){
+  const n=re.length;
+  for(let i=1,j=0;i<n;i++){let bit=n>>1;for(;j&bit;bit>>=1)j^=bit;j^=bit;
+    if(i<j){[re[i],re[j]]=[re[j],re[i]];[im[i],im[j]]=[im[j],im[i]];}}
+  for(let len=2;len<=n;len<<=1){
+    const ang=-2*Math.PI/len,wR=Math.cos(ang),wI=Math.sin(ang);
+    for(let i=0;i<n;i+=len){let cR=1,cI=0;
+      for(let j=0;j<len>>1;j++){
+        const uR=re[i+j],uI=im[i+j],vR=re[i+j+len/2]*cR-im[i+j+len/2]*cI,vI=re[i+j+len/2]*cI+im[i+j+len/2]*cR;
+        re[i+j]=uR+vR;im[i+j]=uI+vI;re[i+j+len/2]=uR-vR;im[i+j+len/2]=uI-vI;
+        const tR=cR*wR-cI*wI;cI=cR*wI+cI*wR;cR=tR;}}}
+}
+
+// ── Windows ────────────────────────────────────────────────────────────────────
+function makeWindow(name,N){
+  const w=new Float64Array(N),p2=2*Math.PI;
+  for(let i=0;i<N;i++) switch(name){
+    case 'hann':    w[i]=0.5*(1-Math.cos(p2*i/(N-1)));break;
+    case 'hamming': w[i]=0.54-0.46*Math.cos(p2*i/(N-1));break;
+    case 'blackman':w[i]=0.42-0.5*Math.cos(p2*i/(N-1))+0.08*Math.cos(4*Math.PI*i/(N-1));break;
+    case 'flat_top':w[i]=1-1.93*Math.cos(p2*i/(N-1))+1.29*Math.cos(4*Math.PI*i/(N-1))
+                       -0.388*Math.cos(6*Math.PI*i/(N-1))+0.032*Math.cos(8*Math.PI*i/(N-1));break;
+    default:w[i]=1;
+  }
+  return w;
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────────
+function parseScientific(s){s=s.trim().replace(/,/g,'');return s?parseFloat(s):0;}
+function fmtHz(hz){
+  if(Math.abs(hz)>=1e9)return(hz/1e9).toFixed(4).replace(/\.?0+$/,'')+' GHz';
+  if(Math.abs(hz)>=1e6)return(hz/1e6).toFixed(4).replace(/\.?0+$/,'')+' MHz';
+  if(Math.abs(hz)>=1e3)return(hz/1e3).toFixed(2).replace(/\.?0+$/,'')+' kHz';
+  return hz.toFixed(0)+' Hz';
+}
+function fmtTime(s){
+  if(s>=1)return s.toFixed(3)+' s';
+  if(s>=1e-3)return(s*1e3).toFixed(3)+' ms';
+  if(s>=1e-6)return(s*1e6).toFixed(3)+' µs';
+  return(s*1e9).toFixed(3)+' ns';
+}
+function fmtSize(b){
+  if(b>=1e9)return(b/1e9).toFixed(2)+' GB';
+  if(b>=1e6)return(b/1e6).toFixed(2)+' MB';
+  if(b>=1e3)return(b/1e3).toFixed(1)+' kB';
+  return b+' B';
+}
+function setStatus(msg,type){const el=document.getElementById('status');el.textContent=msg;el.className='status-'+type;}
+function resetAll(){
+  gI=gQ=gIorig=gQorig=null; tdXRange=null;
+  // Reset all marker slots
+  ['abs','iq','spectrum','phase','const'].forEach(k => {
+    mkSlots[k].forEach(s => { s.enabled=false; s.placed=false; s.x=s.y=null; });
+  });
+  mkActive=null; mkDelta=false; mkDeltaRef=0; mkRegs.clear();
+  document.getElementById('mkDeltaChk').checked=false;
+  document.getElementById('mkDeltaRef').disabled=true;
+  document.getElementById('mkReadings').innerHTML='';
+  document.getElementById('mkHint').textContent='';
+  [0,1,2,3].forEach(i => {
+    const b=document.getElementById(`mk-btn-${i}`);
+    b.classList.remove('mk-enabled','mk-active');
+    b.style.removeProperty('--mk-c');
+  });
+  document.getElementById('markerPanel').style.display='none';
+  document.getElementById('swapIQ').checked=false;
+  document.getElementById('fileInput').value='';
+  document.getElementById('fileInput')._file=null;
+  document.getElementById('fileName').textContent='No file chosen';
+  document.getElementById('analyzeBtn').disabled=true;
+  document.getElementById('plotContainer').style.display='none';
+  document.getElementById('statsPanel').style.display='none';
+  document.getElementById('dropZone').style.display='flex';
+  setStatus('','info');
+}
+</script>
+</body>
+</html>
