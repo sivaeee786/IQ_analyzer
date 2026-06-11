@@ -377,6 +377,20 @@ select:focus, input:focus {
 .mk-hint { font-size: 9.5px; color: #5a9850; padding: 3px 0 0; min-height: 14px; }
 .plotly-chart.mk-xhair, .spectrum-chart.mk-xhair { cursor: crosshair !important; }
 
+/* ── Export panel ────────────────────────────────────── */
+.export-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px; }
+.export-row .form-label { font-size: 10px; margin-bottom: 2px; }
+.btn-export {
+  width: 100%; padding: 7px 0; border-radius: 8px;
+  border: 1px solid #3a5028; background: #1e3018; color: #8ab870;
+  font-size: 12px; font-weight: 700; cursor: pointer; font-family: inherit;
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  transition: background 0.15s, border-color 0.15s;
+}
+.btn-export:hover { background: #2a4020; border-color: #5a8048; color: #b0e080; }
+.btn-export:disabled { opacity: 0.45; cursor: not-allowed; }
+.export-info { font-size: 9.5px; color: #5a7848; margin-top: 5px; text-align: center; }
+
 /* ── Responsive ─────────────────────────────────────── */
 @media (max-width: 860px) {
   .main-layout { grid-template-columns: 1fr; }
@@ -508,6 +522,29 @@ select:focus, input:focus {
         </div>
         <div id="mkReadings" class="mk-readings"></div>
         <div id="mkHint" class="mk-hint"></div>
+      </div>
+
+      <!-- Export CSV panel (hidden until data loaded) -->
+      <div class="panel" id="exportPanel" style="display:none">
+        <div class="panel-title" style="margin-bottom:8px">Export CSV</div>
+        <div class="export-row">
+          <div>
+            <div class="form-label">Start Index</div>
+            <input type="number" id="csvStart" class="form-input" value="0" min="0" placeholder="0">
+          </div>
+          <div>
+            <div class="form-label">End Index</div>
+            <input type="number" id="csvEnd" class="form-input" value="" placeholder="(all)">
+          </div>
+        </div>
+        <button class="btn-export" id="exportBtn" onclick="exportCSV()">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          Download  i,q  CSV
+        </button>
+        <div class="export-info" id="exportInfo"></div>
       </div>
 
     </div><!-- /sidebar -->
@@ -766,6 +803,9 @@ async function analyze() {
     document.getElementById('plotContainer').style.display = 'flex';
     document.getElementById('statsPanel').style.display = '';
     document.getElementById('markerPanel').style.display = '';
+    document.getElementById('exportPanel').style.display = '';
+    document.getElementById('exportInfo').textContent = '';
+    updateExportPlaceholder();
     // Show whatever plot is currently selected in the dropdown
     activePlot = document.getElementById('plotTypeSelect').value;
     refreshLayout();
@@ -1302,6 +1342,63 @@ function fmtSize(b){
   if(b>=1e3)return(b/1e3).toFixed(1)+' kB';
   return b+' B';
 }
+// ── CSV export ────────────────────────────────────────────────────────────────
+function exportCSV() {
+  if (!gI) return;
+  const startVal = parseInt(document.getElementById('csvStart').value);
+  const endVal   = document.getElementById('csvEnd').value;
+  const start = isNaN(startVal) || startVal < 0 ? 0 : Math.min(startVal, gI.length - 1);
+  const end   = (endVal === '' || isNaN(parseInt(endVal)))
+                  ? gI.length
+                  : Math.min(Math.max(parseInt(endVal), start + 1), gI.length);
+  const count = end - start;
+
+  // Determine inverse scaling so we write the original raw integers, not normalised floats
+  const fmt = document.getElementById('dataFormat').value;
+  let toRaw;
+  if (fmt === 'hex16' || fmt === 'int16') {
+    // normalised ÷ 32768 → multiply back and round to int16
+    toRaw = v => Math.round(v * 32768);
+  } else if (fmt === 'int8') {
+    toRaw = v => Math.round(v * 128);
+  } else if (fmt === 'uint8') {
+    // stored as (raw/128 − 1) → raw = (v + 1) * 128
+    toRaw = v => Math.round((v + 1) * 128);
+  } else {
+    // float32 / float64 — raw value IS the stored value; write with full precision
+    toRaw = v => v;
+  }
+
+  const btn  = document.getElementById('exportBtn');
+  const info = document.getElementById('exportInfo');
+  btn.disabled = true;
+  info.textContent = `Building ${count.toLocaleString()} rows…`;
+
+  setTimeout(() => {
+    const rows = ['i,q'];
+    for (let idx = start; idx < end; idx++) {
+      rows.push(`${toRaw(gI[idx])},${toRaw(gQ[idx])}`);
+    }
+    const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `iq_${start}-${end-1}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    btn.disabled = false;
+    info.textContent = `Exported ${count.toLocaleString()} samples (${fmtSize(blob.size)})`;
+  }, 10);
+}
+
+// Update the End Index placeholder whenever data is loaded
+function updateExportPlaceholder() {
+  const el = document.getElementById('csvEnd');
+  if (el && gI) el.placeholder = gI.length.toLocaleString();
+}
+
 function setStatus(msg,type){const el=document.getElementById('status');el.textContent=msg;el.className='status-'+type;}
 function resetAll(){
   gI=gQ=gIorig=gQorig=null; tdXRange=null;
@@ -1327,6 +1424,9 @@ function resetAll(){
   document.getElementById('analyzeBtn').disabled=true;
   document.getElementById('plotContainer').style.display='none';
   document.getElementById('statsPanel').style.display='none';
+  document.getElementById('exportPanel').style.display='none';
+  document.getElementById('csvStart').value='0';
+  document.getElementById('csvEnd').value='';
   document.getElementById('dropZone').style.display='flex';
   setStatus('','info');
 }
