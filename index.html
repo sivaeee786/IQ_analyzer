@@ -530,6 +530,8 @@ select:focus, input:focus {
             <option value="int8">int8 binary — CS8</option>
             <option value="uint8">uint8 binary — CU8</option>
             <option value="mat">MATLAB .mat (variable Y)</option>
+            <option value="csv">CSV — I,Q per line</option>
+            <option value="csv_seq">CSV — alternating I / Q lines</option>
           </select>
         </div>
 
@@ -873,7 +875,7 @@ function onFileSelected(file) {
   const ext = file.name.toLowerCase().split('.').pop();
   const fmtMap = { cf32:'float32',fc32:'float32',cs16:'int16',sc16:'int16',
                    cs8:'int8',sc8:'int8',cu8:'uint8',iq:'float32',
-                   txt:'hex16',hex:'hex16',dat:'hex16',mat:'mat' };
+                   txt:'hex16',hex:'hex16',dat:'hex16',mat:'mat',csv:'csv' };
   if (fmtMap[ext]) document.getElementById('dataFormat').value = fmtMap[ext];
   else file.slice(0,32).text().then(s => {
     if (/0x[0-9a-fA-F]{1,4}/.test(s)) document.getElementById('dataFormat').value = 'hex16';
@@ -1079,6 +1081,10 @@ async function analyze() {
       }
       I = new Float32Array(mat.real);
       Q = mat.imag ? new Float32Array(mat.imag) : new Float32Array(mat.n);
+    } else if (fmt === 'csv') {
+      [I,Q] = parseCSVPaired(await file.text());
+    } else if (fmt === 'csv_seq') {
+      [I,Q] = parseCSVSequential(await file.text());
     } else if (fmt === 'hex16') {
       [I,Q] = parseHexIQ(await file.text());
     } else {
@@ -1135,6 +1141,41 @@ function parseIQ(buf, fmt) {
   }
   return [I,Q];
 }
+// CSV: one I,Q pair per line  (comma / tab / semicolon / space separated)
+function parseCSVPaired(text) {
+  const I = [], Q = [];
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;          // blank / comment
+    const parts = line.split(/[\t,;]+/).map(s => s.trim()).filter(Boolean);
+    if (parts.length < 2) continue;
+    const i = parseFloat(parts[0]), q = parseFloat(parts[1]);
+    if (!isFinite(i) || !isFinite(q)) continue;          // skip header rows
+    I.push(i); Q.push(q);
+  }
+  if (I.length === 0) throw new Error('No valid I,Q pairs found in CSV file.');
+  return [new Float32Array(I), new Float32Array(Q)];
+}
+
+// CSV: alternating lines — odd lines = I, even lines = Q
+// line 1 → I[0], line 2 → Q[0], line 3 → I[1], line 4 → Q[1], …
+function parseCSVSequential(text) {
+  const I = [], Q = [];
+  let idx = 0; // counts valid numeric lines
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+    const v = parseFloat(line.split(/[\t,;]+/)[0]);
+    if (!isFinite(v)) continue;              // skip header rows
+    if (idx % 2 === 0) I.push(v);           // odd line (0-indexed even) → I
+    else               Q.push(v);           // even line (0-indexed odd)  → Q
+    idx++;
+  }
+  if (I.length === 0) throw new Error('No valid values found in CSV file.');
+  if (I.length !== Q.length) Q.push(0);     // pad if trailing I with no Q
+  return [new Float32Array(I), new Float32Array(Q)];
+}
+
 function parseHexIQ(text) {
   const re=/0x([0-9a-fA-F]{1,4})|(?<![0-9a-fA-F])([0-9a-fA-F]{4})(?![0-9a-fA-F])/g;
   const raw=[];let m;
@@ -1192,7 +1233,7 @@ function mkToggle(idx) {
     mkActive = { plotKey: pk, idx }; // reactivate for repositioning
   }
   mkUpdateUI();
-  renderVisible();
+  mkRefreshPlot(pk);
 }
 
 function mkDisable(idx) {
@@ -1201,7 +1242,7 @@ function mkDisable(idx) {
   slot.enabled = false; slot.placed = false; slot.x = slot.y = null;
   if (mkActive && mkActive.plotKey === pk && mkActive.idx === idx) mkActive = null;
   mkUpdateUI();
-  renderVisible();
+  mkRefreshPlot(pk);
 }
 
 function mkUpdateDelta() {
@@ -1213,7 +1254,7 @@ function mkUpdateDelta() {
 function mkRefreshAll() {
   mkDeltaRef = parseInt(document.getElementById('mkDeltaRef').value);
   mkRenderReadings(activePlot);
-  renderVisible();
+  mkRefreshPlot(activePlot);
 }
 
 // Return a Plotly scatter trace (symbol only — labels come from mkGetAnnotations)
@@ -1281,6 +1322,32 @@ function mkSnapSpectrum(fArr, yData) {
   });
 }
 
+// Update markers on the plot WITHOUT resetting zoom.
+// Uses relayout (annotations) + restyle/addTraces/deleteTraces instead of Plotly.react.
+function mkRefreshPlot(plotKey) {
+  const pid = MK_PIDS[plotKey];
+  const el  = document.getElementById(pid);
+  if (!el || !el.data) { renderVisible(); return; } // plot not yet initialised
+
+  const mkT    = mkGetTrace(plotKey);
+  const n      = el.data.length;
+  const lastMk = n > 0 && el.data[n - 1].name === 'Markers';
+
+  if (mkT && lastMk) {
+    Plotly.restyle(pid, {
+      x: [mkT.x], y: [mkT.y],
+      'marker.line.color': [mkT.marker.line.color],
+    }, [n - 1]);
+  } else if (mkT && !lastMk) {
+    Plotly.addTraces(pid, mkT);
+  } else if (!mkT && lastMk) {
+    Plotly.deleteTraces(pid, [n - 1]);
+  }
+
+  // relayout only updates annotations — axis ranges are left untouched
+  Plotly.relayout(pid, { annotations: mkGetAnnotations(plotKey) });
+}
+
 // Register plotly_click once per plot div
 function mkRegister(plotKey) {
   const pid = MK_PIDS[plotKey];
@@ -1294,7 +1361,7 @@ function mkRegister(plotKey) {
     slot.x = pt.x; slot.y = pt.y; slot.placed = true;
     mkActive = null; // auto-exit placement after click
     mkUpdateUI();
-    renderVisible();
+    mkRefreshPlot(plotKey);
   });
 }
 
