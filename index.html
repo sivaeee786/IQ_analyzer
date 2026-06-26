@@ -565,6 +565,18 @@ select:focus, input:focus {
           </label>
         </div>
 
+        <!-- Arithmetic Shift Right -->
+        <div class="form-row" style="margin-top:4px">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;color:#8ab870;font-size:0.78rem;font-weight:500">
+            <input type="checkbox" id="asrEnable" onchange="toggleASR()" style="accent-color:#5aab28;width:13px;height:13px;cursor:pointer">
+            Arithmetic Shift Right
+          </label>
+          <div id="asrControls" style="display:none;margin-top:6px">
+            <label class="form-label">Shift Amount (bits)</label>
+            <input type="number" id="asrBits" value="1" min="1" max="31" placeholder="1 – 31">
+          </div>
+        </div>
+
         <!-- Analyze -->
         <button class="btn-analyze" id="analyzeBtn" onclick="analyze()" disabled>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>
@@ -708,12 +720,12 @@ select:focus, input:focus {
             <div class="plot-card-header">
               <span class="plot-card-title"><span class="tdot" style="background:#c87eff"></span>Spectrum Analyzer — PSD</span>
               <div class="plot-card-controls">
-                <label>FFT</label>
-                <select id="fftSize" onchange="updateSpectrum()">
-                  <option value="256">256</option><option value="512">512</option>
-                  <option value="1024" selected>1024</option><option value="2048">2048</option>
-                  <option value="4096">4096</option><option value="8192">8192</option>
-                </select>
+                <label>RBW (Hz)</label>
+                <input id="rbwInput" type="text" value="" placeholder="auto"
+                  title="Resolution Bandwidth in Hz. FFT size = Fs ÷ RBW, snapped to nearest power of 2."
+                  style="width:72px;padding:2px 5px;border-radius:5px;border:1px solid #bbc9a8;
+                         background:#f0f4e8;font-size:11px;font-family:inherit;text-align:right"
+                  onchange="updateSpectrum()" onkeydown="if(event.key==='Enter')updateSpectrum()">
                 <label>Win</label>
                 <select id="fftWindow" onchange="updateSpectrum()">
                   <option value="hann" selected>Hann</option><option value="hamming">Hamming</option>
@@ -1095,6 +1107,15 @@ async function analyze() {
     const endR  = document.getElementById('sampleEnd').value;
     const end   = endR ? Math.min(parseInt(endR), I.length) : I.length;
     gIorig = I.slice(start, end); gQorig = Q.slice(start, end);
+
+    // Arithmetic shift right: scale each sample by 1/2^n (equivalent to ASR on integer data)
+    const asrEn = document.getElementById('asrEnable').checked;
+    const asrN  = parseInt(document.getElementById('asrBits').value) || 0;
+    if (asrEn && asrN > 0) {
+      const scale = 1 / Math.pow(2, asrN);
+      for (let i = 0; i < gIorig.length; i++) { gIorig[i] *= scale; gQorig[i] *= scale; }
+    }
+
     applySwap(false); // sets gI/gQ from originals
 
     if (gI.length === 0) { showError('The selected start/end range contains no samples. Check your index bounds.', 'Empty Range'); return; }
@@ -1186,6 +1207,12 @@ function parseHexIQ(text) {
   const I=new Float32Array(n),Q=new Float32Array(n);
   for(let i=0;i<n;i++){I[i]=raw[2*i]*sc;Q[i]=raw[2*i+1]*sc;}
   return [I,Q];
+}
+
+// ── Arithmetic shift right toggle ────────────────────────────────────────────
+function toggleASR() {
+  document.getElementById('asrControls').style.display =
+    document.getElementById('asrEnable').checked ? '' : 'none';
 }
 
 // ── I/Q swap ──────────────────────────────────────────────────────────────────
@@ -1546,9 +1573,25 @@ function updateTimePlots() {
 }
 
 // ── Spectrum ──────────────────────────────────────────────────────────────────
+function rbwToN(rbwHz) {
+  if (!gFs || gFs <= 0) return 1024;
+  let n = Math.round(gFs / rbwHz);
+  // Snap to nearest power of 2, clamped to [64, 65536]
+  n = Math.max(64, Math.min(65536, n));
+  const p = Math.pow(2, Math.round(Math.log2(n)));
+  return Math.max(64, Math.min(65536, p));
+}
+function getSpecN() {
+  const rbwEl = document.getElementById('rbwInput');
+  const raw = rbwEl ? rbwEl.value.trim() : '';
+  if (!raw || !gFs || gFs <= 0) return 1024;
+  const rbv = parseFloat(raw);
+  if (!isFinite(rbv) || rbv <= 0) return 1024;
+  return rbwToN(rbv);
+}
 function updateSpectrum() {
   if(!gI) return;
-  const N=parseInt(document.getElementById('fftSize').value);
+  const N=getSpecN();
   const win=document.getElementById('fftWindow').value;
   const avgS=document.getElementById('fftAvg').value;
   const scale=document.getElementById('specScale').value;
@@ -1594,8 +1637,12 @@ function updateSpectrum() {
   }, plotCfg);
   mkRegister('spectrum');
   mkUpdateUI();
+  const actualRbw = gFs / N;
+  // Keep placeholder in sync so empty field shows what "auto" resolves to
+  const rbwEl = document.getElementById('rbwInput');
+  if (rbwEl && !rbwEl.value.trim()) rbwEl.placeholder = actualRbw >= 1 ? Math.round(actualRbw).toString() : actualRbw.toFixed(2);
   document.getElementById('windowInfo').textContent =
-    `FFT: ${N} pts  ·  ${win}  ·  ${avgCount} averages  ·  ${(gFs/N).toFixed(1)} Hz/bin`;
+    `RBW: ${fmtHz(actualRbw)}  ·  FFT: ${N} pts  ·  ${win}  ·  ${avgCount} averages`;
 }
 
 // ── Phase ──────────────────────────────────────────────────────────────────────
@@ -1808,6 +1855,9 @@ function resetAll(){
   });
   document.getElementById('markerPanel').style.display='none';
   document.getElementById('swapIQ').checked=false;
+  document.getElementById('asrEnable').checked=false;
+  document.getElementById('asrBits').value='1';
+  document.getElementById('asrControls').style.display='none';
   document.getElementById('fileInput').value='';
   document.getElementById('fileInput')._file=null;
   document.getElementById('fileName').textContent='No file chosen';
