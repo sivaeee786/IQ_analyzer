@@ -687,14 +687,6 @@ select:focus, input:focus {
           <div class="plot-card" id="cardAbs">
             <div class="plot-card-header">
               <span class="plot-card-title"><span class="tdot" style="background:#4a9eff"></span>Magnitude |I + jQ|</span>
-              <div class="plot-card-controls">
-                <label>Decimate</label>
-                <select id="tdecimate" onchange="updateTimePlots()">
-                  <option value="1">1×</option><option value="2">2×</option><option value="4">4×</option>
-                  <option value="8">8×</option><option value="16" selected>16×</option>
-                  <option value="32">32×</option><option value="64">64×</option>
-                </select>
-              </div>
             </div>
             <div class="plot-body"><div class="plotly-chart" id="plotAbs"></div></div>
           </div>
@@ -731,12 +723,6 @@ select:focus, input:focus {
                   <option value="hann" selected>Hann</option><option value="hamming">Hamming</option>
                   <option value="blackman">Blackman</option><option value="flat_top">Flat Top</option>
                   <option value="rect">Rect</option>
-                </select>
-                <label>Avg</label>
-                <select id="fftAvg" onchange="updateSpectrum()">
-                  <option value="1">1</option><option value="4">4</option>
-                  <option value="8" selected>8</option><option value="16">16</option>
-                  <option value="32">32</option><option value="max">Max</option>
                 </select>
                 <label>Scale</label>
                 <select id="specScale" onchange="updateSpectrum()">
@@ -1485,38 +1471,46 @@ function renderVisible() {
 // ── Time domain ───────────────────────────────────────────────────────────────
 function updateTimePlots() {
   if (!gI) return;
-  const dec = parseInt(document.getElementById('tdecimate').value);
   const fmt = document.getElementById('dataFormat').value;
   const dsc = fmt === 'hex16' ? 32768 : 1;
   const yLbl = fmt === 'hex16' ? 'Amplitude (int16 LSB)' : 'Amplitude';
-  const n = gI.length, len = Math.ceil(n / dec);
+  const n = gI.length;
 
-  // X-axis is sample index (not time), so viewers can relate values to exact sample numbers
-  const sIdx = new Float32Array(len); // sample index at each decimated point
+  // Smart display thinning: cap Plotly render points to keep the UI responsive.
+  // For each display bin, the sample with the highest magnitude is kept so signal
+  // peaks are never lost even when many samples are collapsed into one pixel column.
+  const MAX_DISPLAY = 8000;
+  const step = n > MAX_DISPLAY ? Math.ceil(n / MAX_DISPLAY) : 1;
+  const len  = Math.ceil(n / step);
+
+  const sIdx = new Float32Array(len);
   const mag  = new Float32Array(len);
   const iD   = new Float32Array(len);
   const qD   = new Float32Array(len);
 
   for (let i = 0; i < len; i++) {
-    const idx = i * dec;
-    let sm = 0, si = 0, sq = 0, cnt = 0;
-    for (let d = 0; d < dec && idx + d < n; d++) {
-      si += gI[idx+d]; sq += gQ[idx+d];
-      sm += Math.hypot(gI[idx+d], gQ[idx+d]);
-      cnt++;
+    const base = i * step;
+    const end  = Math.min(base + step, n);
+    let bestIdx = base;
+    let bestM2  = gI[base] * gI[base] + gQ[base] * gQ[base];
+    for (let j = base + 1; j < end; j++) {
+      const m2 = gI[j] * gI[j] + gQ[j] * gQ[j];
+      if (m2 > bestM2) { bestM2 = m2; bestIdx = j; }
     }
-    sIdx[i] = idx;                    // sample index of this bin
-    mag[i]  = (sm / cnt) * dsc;
-    iD[i]   = (si / cnt) * dsc;
-    qD[i]   = (sq / cnt) * dsc;
+    sIdx[i] = bestIdx;
+    mag[i]  = Math.sqrt(bestM2) * dsc;
+    iD[i]   = gI[bestIdx] * dsc;
+    qD[i]   = gQ[bestIdx] * dsc;
   }
 
-  const xArr = Array.from(sIdx);
+  const dispInfo = step > 1
+    ? `peak-hold: ${len.toLocaleString()} of ${n.toLocaleString()} samples`
+    : `${n.toLocaleString()} samples`;
 
   // Build xaxis config — restore remembered zoom range if available
   const xAxisCfg = {
     ...baseLayout.xaxis,
-    title: { text: `Sample Index  (${dec}× decimated, ${n.toLocaleString()} total)`, font: { size: 10, color: AXIS_CLR } },
+    title: { text: `Sample Index  (${dispInfo})`, font: { size: 10, color: AXIS_CLR } },
     tickformat: 'd',
     ...(tdXRange ? { range: tdXRange } : {}),
   };
@@ -1533,10 +1527,9 @@ function updateTimePlots() {
   };
 
   if (activePlot === 'abs') {
-    const magArr = Array.from(mag);
     const mkT = mkGetTrace('abs');
     Plotly.react('plotAbs', [
-      { x: xArr, y: magArr, type: 'scattergl', mode: 'lines',
+      { x: sIdx, y: mag, type: 'scattergl', mode: 'lines',
         line: { color: COLORS.abs, width: 1.5 }, name: '|IQ|' },
       ...(mkT ? [mkT] : []),
     ], {
@@ -1553,10 +1546,10 @@ function updateTimePlots() {
     const show = document.getElementById('riqShow').value;
     const traces = [];
     if (show === 'both' || show === 'I')
-      traces.push({ x: xArr, y: Array.from(iD), type: 'scattergl', mode: 'lines',
+      traces.push({ x: sIdx, y: iD, type: 'scattergl', mode: 'lines',
         line: { color: COLORS.real, width: 1.5 }, name: 'I (Real)' });
     if (show === 'both' || show === 'Q')
-      traces.push({ x: xArr, y: Array.from(qD), type: 'scattergl', mode: 'lines',
+      traces.push({ x: sIdx, y: qD, type: 'scattergl', mode: 'lines',
         line: { color: COLORS.imag, width: 1.5 }, name: 'Q (Imag)' });
     const mkT = mkGetTrace('iq');
     if (mkT) traces.push(mkT);
@@ -1593,10 +1586,9 @@ function updateSpectrum() {
   if(!gI) return;
   const N=getSpecN();
   const win=document.getElementById('fftWindow').value;
-  const avgS=document.getElementById('fftAvg').value;
   const scale=document.getElementById('specScale').value;
   const n=gI.length,maxAvg=Math.floor(n/N);
-  const avgCount=avgS==='max'?Math.max(1,maxAvg):Math.min(parseInt(avgS),Math.max(1,maxAvg));
+  const avgCount=Math.max(1,maxAvg);
   const wC=makeWindow(win,N),wP=wC.reduce((s,v)=>s+v*v,0)/N;
   const psd=new Float64Array(N);
   for(let a=0;a<avgCount;a++){
