@@ -792,6 +792,7 @@ select:focus, input:focus {
 <script>
 // ── Global state ─────────────────────────────────────────────────────────────
 let gI = null, gQ = null, gIorig = null, gQorig = null, gFs = 1e6, gFc = 0;
+let gParseFmt = null; // format actually used to parse the currently-loaded data (independent of later dropdown changes)
 // ── Marker state ──────────────────────────────────────────────────────────────
 const MK_COLORS = ['#ffcc44','#44b8ff','#ff6688','#44ddaa'];
 const MK_PIDS   = {abs:'plotAbs',iq:'plotIQ',spectrum:'plotSpectrum',phase:'plotPhase',const:'plotConst'};
@@ -866,6 +867,62 @@ const dropZoneEl = document.getElementById('dropZone');
   });
 });
 
+// ── Persist last-used config across page loads ────────────────────────────────
+const CONFIG_STORAGE_KEY = 'iqAnalyzerConfig';
+const PERSIST_FIELD_IDS = ['dataFormat','sampleRate','centerFreq','sampleStart','sampleEnd','swapIQ','asrEnable','asrBits'];
+
+function saveConfig() {
+  try {
+    const cfg = {};
+    PERSIST_FIELD_IDS.forEach(id => {
+      const el = document.getElementById(id);
+      cfg[id] = el.type === 'checkbox' ? el.checked : el.value;
+    });
+    localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(cfg));
+  } catch (e) { /* localStorage unavailable — ignore */ }
+}
+
+function loadConfig() {
+  try {
+    const raw = localStorage.getItem(CONFIG_STORAGE_KEY);
+    if (!raw) return;
+    const cfg = JSON.parse(raw);
+    PERSIST_FIELD_IDS.forEach(id => {
+      if (!(id in cfg)) return;
+      const el = document.getElementById(id);
+      if (el.type === 'checkbox') el.checked = cfg[id];
+      else el.value = cfg[id];
+    });
+    toggleASR(); // sync ASR bits field visibility with the restored checkbox state
+  } catch (e) { /* corrupt/unavailable storage — fall back to HTML defaults */ }
+}
+
+PERSIST_FIELD_IDS.forEach(id => {
+  document.getElementById(id).addEventListener('change', saveConfig);
+});
+loadConfig();
+
+// Remember which format was actually used per file extension, so re-loading a file of the
+// same type recalls your last choice instead of snapping back to the hardcoded default below.
+const EXT_FORMAT_STORAGE_KEY = 'iqAnalyzerExtFormats';
+function getExtFormat(ext) {
+  try { return (JSON.parse(localStorage.getItem(EXT_FORMAT_STORAGE_KEY)) || {})[ext] || null; }
+  catch (e) { return null; }
+}
+function saveExtFormat(ext, fmt) {
+  try {
+    const map = JSON.parse(localStorage.getItem(EXT_FORMAT_STORAGE_KEY)) || {};
+    map[ext] = fmt;
+    localStorage.setItem(EXT_FORMAT_STORAGE_KEY, JSON.stringify(map));
+  } catch (e) { /* localStorage unavailable — ignore */ }
+}
+document.getElementById('dataFormat').addEventListener('change', () => {
+  const file = document.getElementById('fileInput')._file;
+  if (!file) return;
+  const ext = file.name.toLowerCase().split('.').pop();
+  saveExtFormat(ext, document.getElementById('dataFormat').value);
+});
+
 function onFileSelected(file) {
   document.getElementById('fileName').textContent = file.name;
   document.getElementById('analyzeBtn').disabled = false;
@@ -874,9 +931,11 @@ function onFileSelected(file) {
   const fmtMap = { cf32:'float32',fc32:'float32',cs16:'int16',sc16:'int16',
                    cs8:'int8',sc8:'int8',cu8:'uint8',iq:'float32',
                    txt:'hex16',hex:'hex16',dat:'hex16',mat:'mat',csv:'csv' };
-  if (fmtMap[ext]) document.getElementById('dataFormat').value = fmtMap[ext];
+  const remembered = getExtFormat(ext);
+  if (remembered) { document.getElementById('dataFormat').value = remembered; saveConfig(); }
+  else if (fmtMap[ext]) { document.getElementById('dataFormat').value = fmtMap[ext]; saveConfig(); }
   else file.slice(0,32).text().then(s => {
-    if (/0x[0-9a-fA-F]{1,4}/.test(s)) document.getElementById('dataFormat').value = 'hex16';
+    if (/0x[0-9a-fA-F]{1,4}/.test(s)) { document.getElementById('dataFormat').value = 'hex16'; saveConfig(); }
   });
   document.getElementById('fileInput')._file = file;
 }
@@ -1088,6 +1147,7 @@ async function analyze() {
     } else {
       [I,Q] = parseIQ(await file.arrayBuffer(), fmt);
     }
+    gParseFmt = isMat ? 'mat' : fmt;
 
     const start = parseInt(document.getElementById('sampleStart').value) || 0;
     const endR  = document.getElementById('sampleEnd').value;
@@ -1471,7 +1531,7 @@ function renderVisible() {
 // ── Time domain ───────────────────────────────────────────────────────────────
 function updateTimePlots() {
   if (!gI) return;
-  const fmt = document.getElementById('dataFormat').value;
+  const fmt = gParseFmt;
   const dsc = fmt === 'hex16' ? 32768 : 1;
   const yLbl = fmt === 'hex16' ? 'Amplitude (int16 LSB)' : 'Amplitude';
   const n = gI.length;
@@ -1688,7 +1748,7 @@ function updateConstellation() {
 function showStats() {
   const n=gI.length;let sp=0,pp=0,sa=0,si=0,sq=0;
   for(let i=0;i<n;i++){const p=gI[i]*gI[i]+gQ[i]*gQ[i];if(p>pp)pp=p;sp+=p;sa+=Math.sqrt(p);si+=gI[i];sq+=gQ[i];}
-  const fmt=document.getElementById('dataFormat').value,rs=fmt==='hex16'?32768:1,u=fmt==='hex16'?' LSB':'',dp=fmt==='hex16'?1:4;
+  const fmt=gParseFmt,rs=fmt==='hex16'?32768:1,u=fmt==='hex16'?' LSB':'',dp=fmt==='hex16'?1:4;
   document.getElementById('st-samples').textContent = n.toLocaleString();
   document.getElementById('st-duration').textContent= fmtTime(n/gFs);
   document.getElementById('st-fs').textContent      = fmtHz(gFs);
@@ -1761,8 +1821,11 @@ function exportCSV() {
                   : Math.min(Math.max(parseInt(endVal), start + 1), gI.length);
   const count = end - start;
 
-  // Determine inverse scaling so we write the original raw integers, not normalised floats
-  const fmt = document.getElementById('dataFormat').value;
+  // Determine inverse scaling so we write the original raw integers, not normalised floats.
+  // Uses the format captured when the file was parsed, not the live dropdown value —
+  // the dropdown can be changed after Analyze without re-parsing, which would otherwise
+  // desync the export scale from the data actually loaded in memory.
+  const fmt = gParseFmt;
   let toRaw;
   if (fmt === 'hex16' || fmt === 'int16') {
     // normalised ÷ 32768 → multiply back and round to int16
@@ -1830,7 +1893,7 @@ function closeErrModal() {
   if (ov._keyHandler) { document.removeEventListener('keydown', ov._keyHandler); ov._keyHandler = null; }
 }
 function resetAll(){
-  gI=gQ=gIorig=gQorig=null; tdXRange=null;
+  gI=gQ=gIorig=gQorig=null; gParseFmt=null; tdXRange=null;
   // Reset all marker slots
   ['abs','iq','spectrum','phase','const'].forEach(k => {
     mkSlots[k].forEach(s => { s.enabled=false; s.placed=false; s.x=s.y=null; });
@@ -1861,6 +1924,7 @@ function resetAll(){
   document.getElementById('csvEnd').value='';
   document.getElementById('dropZone').style.display='flex';
   setStatus('','info');
+  saveConfig(); // persist the reset swap/ASR state so a later reload doesn't restore the pre-reset values
 }
 </script>
 </body>
