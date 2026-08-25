@@ -506,7 +506,7 @@ select:focus, input:focus {
 
         <!-- Drop / upload -->
         <div class="upload-box" id="uploadBox" onclick="document.getElementById('fileInput').click()">
-          <input type="file" id="fileInput">
+          <input type="file" id="fileInput" multiple>
           <div class="upload-box-icon">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -515,7 +515,7 @@ select:focus, input:focus {
             </svg>
           </div>
           <div class="upload-label">Upload your IQ file</div>
-          <div class="upload-sub">Hex text · CF32 · CF64 · CS16 · CS8 · CU8</div>
+          <div class="upload-sub">Hex text · CF32 · CF64 · CS16 · CS8 · CU8 · Signal Hound (.iq+.xml)</div>
           <div class="file-chosen" id="fileName">No file chosen</div>
         </div>
 
@@ -532,6 +532,7 @@ select:focus, input:focus {
             <option value="mat">MATLAB .mat (variable Y)</option>
             <option value="csv">CSV — I,Q per line</option>
             <option value="csv_seq">CSV — alternating I / Q lines</option>
+            <option value="shiq">Signal Hound IQ (.iq + .xml)</option>
           </select>
         </div>
 
@@ -574,6 +575,18 @@ select:focus, input:focus {
           <div id="asrControls" style="display:none;margin-top:6px">
             <label class="form-label">Shift Amount (bits)</label>
             <input type="number" id="asrBits" value="1" min="1" max="31" placeholder="1 – 31">
+          </div>
+        </div>
+
+        <!-- Resample -->
+        <div class="form-row" style="margin-top:4px">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;color:#8ab870;font-size:0.78rem;font-weight:500">
+            <input type="checkbox" id="resampleEnable" onchange="toggleResample()" style="accent-color:#5aab28;width:13px;height:13px;cursor:pointer">
+            Resample
+          </label>
+          <div id="resampleControls" style="display:none;margin-top:6px">
+            <label class="form-label">Target Sample Rate (Hz)</label>
+            <input type="text" id="resampleRate" value="" placeholder="e.g. 1e6">
           </div>
         </div>
 
@@ -662,7 +675,7 @@ select:focus, input:focus {
           </svg>
         </div>
         <div class="dz-title">Drop IQ file here or use the upload panel</div>
-        <div class="dz-sub">Supports Hex Text (0x####) · CF32 · CF64 · CS16 · CS8 · CU8</div>
+        <div class="dz-sub">Supports Hex Text (0x####) · CF32 · CF64 · CS16 · CS8 · CU8 · Signal Hound (drop .iq + .xml together)</div>
       </div>
 
       <!-- Plot container (shown after analyze) -->
@@ -729,6 +742,18 @@ select:focus, input:focus {
                   <option value="dBFS" selected>dBFS</option>
                   <option value="dBm">dBm/Hz</option><option value="linear">Linear</option>
                 </select>
+                <label>Gain (dB)</label>
+                <input id="specGain" type="text" value="0" placeholder="0"
+                  title="Front-end/LNA gain applied before capture, in dB. Subtracted from the displayed levels so the plot shows the actual signal level at the input."
+                  style="width:56px;padding:2px 5px;border-radius:5px;border:1px solid #bbc9a8;
+                         background:#f0f4e8;font-size:11px;font-family:inherit;text-align:right"
+                  onchange="updateSpectrum()" onkeydown="if(event.key==='Enter')updateSpectrum()">
+                <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
+                  <input type="checkbox" id="specFftShift" checked onchange="updateSpectrum()"
+                    title="Center DC (0 Hz) in the middle of the axis. Unchecked shows raw FFT bin order: 0 … Fs."
+                    style="accent-color:#5aab28;width:12px;height:12px;cursor:pointer">
+                  Shift
+                </label>
               </div>
             </div>
             <div class="plot-body"><div class="spectrum-chart" id="plotSpectrum"></div></div>
@@ -854,7 +879,7 @@ const plotCfg = { responsive:true, displayModeBar:true, displaylogo:false,
 
 // ── File handling ─────────────────────────────────────────────────────────────
 document.getElementById('fileInput').addEventListener('change', e => {
-  const f = e.target.files[0]; if (f) onFileSelected(f);
+  onFilesSelected(e.target.files);
 });
 const uploadBox = document.getElementById('uploadBox');
 const dropZoneEl = document.getElementById('dropZone');
@@ -863,13 +888,45 @@ const dropZoneEl = document.getElementById('dropZone');
   el.addEventListener('dragleave', ()  => el.classList.remove('drag-over'));
   el.addEventListener('drop', e => {
     e.preventDefault(); el.classList.remove('drag-over');
-    const f = e.dataTransfer.files[0]; if (f) onFileSelected(f);
+    onFilesSelected(e.dataTransfer.files);
   });
 });
 
+// Signal Hound Spike captures are two files (a binary .iq and a metadata .xml sidecar
+// with the same base name) - selecting/dropping just the .iq alone has no sample rate or
+// center frequency anywhere in it, so this app can only support that format when both are
+// handed over together. Any other selection (one file, or an unrelated group of files)
+// falls back to the existing single-file flow via onFileSelected(), unchanged.
+function onFilesSelected(fileList) {
+  const files = Array.from(fileList || []);
+  if (files.length === 0) return;
+
+  const xmlFiles = files.filter(f => f.name.toLowerCase().endsWith('.xml'));
+  const otherFiles = files.filter(f => !f.name.toLowerCase().endsWith('.xml'));
+
+  if (files.length >= 2 && xmlFiles.length === 1 && otherFiles.length === 1) {
+    onFileSelected(otherFiles[0]);
+    document.getElementById('fileInput')._xmlFile = xmlFiles[0];
+    document.getElementById('dataFormat').value = 'shiq';
+    saveConfig();
+    document.getElementById('fileName').textContent = `${otherFiles[0].name}  +  ${xmlFiles[0].name}`;
+    return;
+  }
+
+  if (files.length > 1) {
+    showToast(`Multiple files selected - using "${files[0].name}". For Signal Hound, select exactly its .iq and matching .xml together.`);
+  }
+  onFileSelected(files[0]);
+}
+
 // ── Persist last-used config across page loads ────────────────────────────────
 const CONFIG_STORAGE_KEY = 'iqAnalyzerConfig';
-const PERSIST_FIELD_IDS = ['dataFormat','sampleRate','centerFreq','sampleStart','sampleEnd','swapIQ','asrEnable','asrBits'];
+// NOTE: sampleStart/sampleEnd (Sample Range) and csvStart/csvEnd (Export CSV range) are
+// deliberately NOT persisted — they're an index range specific to whatever file is loaded,
+// not a general preference. Carrying a leftover start index over to a different/reloaded
+// file would silently truncate it (e.g. dropping sample 0), which is exactly the bug this
+// note is here to prevent regressing.
+const PERSIST_FIELD_IDS = ['dataFormat','sampleRate','centerFreq','swapIQ','asrEnable','asrBits','specFftShift','specGain','resampleEnable','resampleRate'];
 
 function saveConfig() {
   try {
@@ -893,7 +950,8 @@ function loadConfig() {
       if (el.type === 'checkbox') el.checked = cfg[id];
       else el.value = cfg[id];
     });
-    toggleASR(); // sync ASR bits field visibility with the restored checkbox state
+    toggleASR();      // sync ASR bits field visibility with the restored checkbox state
+    toggleResample(); // sync resample rate field visibility with the restored checkbox state
   } catch (e) { /* corrupt/unavailable storage — fall back to HTML defaults */ }
 }
 
@@ -938,6 +996,14 @@ function onFileSelected(file) {
     if (/0x[0-9a-fA-F]{1,4}/.test(s)) { document.getElementById('dataFormat').value = 'hex16'; saveConfig(); }
   });
   document.getElementById('fileInput')._file = file;
+  document.getElementById('fileInput')._xmlFile = null; // clear any Signal Hound companion from a previous selection
+
+  // A range picked for a previous file (Sample Range at analyze-time, or the Export CSV
+  // range) has no business silently clipping a newly loaded file — reset both to "full range".
+  document.getElementById('sampleStart').value = '0';
+  document.getElementById('sampleEnd').value   = '';
+  document.getElementById('csvStart').value    = '0';
+  document.getElementById('csvEnd').value      = '';
 }
 
 // ── MAT-Level 5 parser ────────────────────────────────────────────────────────
@@ -1114,9 +1180,10 @@ async function analyze() {
 
   const ext = file.name.toLowerCase().split('.').pop();
   const isMat = ext === 'mat' || fmt === 'mat';
+  const usesEmbeddedRate = isMat || fmt === 'shiq'; // sample rate/center freq come from the file itself, not the input boxes
 
-  // For non-MAT files validate sample rate now; for MAT it may come from XDelta
-  if (!isMat && (!gFs || gFs <= 0)) { showError('Sample rate is missing or invalid. Enter a positive value (e.g. 1e6 for 1 MHz).', 'Invalid Sample Rate'); return; }
+  // For formats without their own embedded rate, validate the sample rate box now
+  if (!usesEmbeddedRate && (!gFs || gFs <= 0)) { showError('Sample rate is missing or invalid. Enter a positive value (e.g. 1e6 for 1 MHz).', 'Invalid Sample Rate'); return; }
 
   setStatus('Reading…', 'info');
   document.getElementById('analyzeBtn').disabled = true;
@@ -1138,6 +1205,22 @@ async function analyze() {
       }
       I = new Float32Array(mat.real);
       Q = mat.imag ? new Float32Array(mat.imag) : new Float32Array(mat.n);
+    } else if (fmt === 'shiq') {
+      const xmlFile = fileInput._xmlFile;
+      if (!xmlFile) throw new Error('Signal Hound format needs both the .iq file and its matching .xml metadata file - select or drop them together.');
+      setStatus('Parsing Signal Hound metadata…', 'info');
+      const meta = await parseSignalHoundXML(await xmlFile.text());
+      gFs = meta.sampleRate;
+      gFc = meta.centerFreq;
+      document.getElementById('sampleRate').value = gFs;
+      document.getElementById('centerFreq').value = gFc;
+      let toastMsg = `Signal Hound: Fs=${fmtHz(gFs)}, Fc=${fmtHz(gFc)}`;
+      if (meta.referenceLevel !== null) toastMsg += `, ref level ${meta.referenceLevel} dBm`;
+      showToast(toastMsg);
+      [I,Q] = parseIQ(await file.arrayBuffer(), 'int16');
+      if (meta.sampleCount !== null && meta.sampleCount !== I.length) {
+        console.warn(`Signal Hound: XML SampleCount (${meta.sampleCount}) does not match parsed sample count (${I.length}) from the .iq file.`);
+      }
     } else if (fmt === 'csv') {
       [I,Q] = parseCSVPaired(await file.text());
     } else if (fmt === 'csv_seq') {
@@ -1162,11 +1245,27 @@ async function analyze() {
       for (let i = 0; i < gIorig.length; i++) { gIorig[i] *= scale; gQorig[i] *= scale; }
     }
 
+    // Resample: updates gFs itself (rather than just gI/gQ) so everything downstream -
+    // plots, stats, export, and a later swapIQ toggle re-deriving gI/gQ from gIorig/gQorig -
+    // stays consistent with the new rate without having to special-case it elsewhere.
+    if (document.getElementById('resampleEnable').checked) {
+      const targetFs = parseScientific(document.getElementById('resampleRate').value);
+      if (!targetFs || targetFs <= 0) {
+        showError('Resample target rate is missing or invalid. Enter a positive value (e.g. 1e6 for 1 MHz).', 'Invalid Resample Rate');
+        return;
+      }
+      const resampled = resampleLinear(gIorig, gQorig, gFs, targetFs);
+      gIorig = resampled.I; gQorig = resampled.Q;
+      showToast(`Resampled from ${fmtHz(gFs)} to ${fmtHz(targetFs)} (${gIorig.length.toLocaleString()} samples)`);
+      gFs = targetFs;
+      document.getElementById('sampleRate').value = gFs;
+    }
+
     applySwap(false); // sets gI/gQ from originals
 
     if (gI.length === 0) { showError('The selected start/end range contains no samples. Check your index bounds.', 'Empty Range'); return; }
 
-    const label = isMat ? 'MAT/Y (complex single)' : fmt;
+    const label = isMat ? 'MAT/Y (complex single)' : (fmt === 'shiq' ? 'Signal Hound (Complex Short)' : fmt);
     setStatus(`${gI.length.toLocaleString()} samples parsed (${label})`, 'ok');
     showStats();
     tdXRange = null; // reset zoom memory for new file
@@ -1255,10 +1354,80 @@ function parseHexIQ(text) {
   return [I,Q];
 }
 
+// Signal Hound Spike .xml sidecar - <SignalHoundIQFile> with CenterFrequency/SampleRate/
+// DataType (must be "Complex Short" - raw interleaved int16 LE, no header, matching this
+// app's own CS16 parser exactly) plus optional ReferenceLevel/ScaleFactor/DeviceType/
+// SampleCount. ScaleFactor (a linear ADC-counts-to-volts factor Spike reports per capture)
+// is read but deliberately NOT applied to the samples - left as raw int16 counts, same as
+// this app's other CS16 captures, so spectrum/amplitude scaling stays consistent across
+// formats rather than silently changing units for just this one.
+async function parseSignalHoundXML(text) {
+  const doc = new DOMParser().parseFromString(text, 'application/xml');
+  if (doc.querySelector('parsererror')) throw new Error('Could not parse Signal Hound .xml metadata file (malformed XML).');
+
+  const get = tag => {
+    const el = doc.querySelector(tag);
+    const t = el && el.textContent.trim();
+    return t ? t : null;
+  };
+
+  const dataType = get('DataType');
+  if (dataType !== 'Complex Short') {
+    throw new Error(`Unsupported Signal Hound DataType "${dataType}" - only "Complex Short" (16-bit interleaved I/Q) is supported.`);
+  }
+
+  const sampleRate  = parseFloat(get('SampleRate'));
+  const centerFreq  = parseFloat(get('CenterFrequency'));
+  if (!isFinite(sampleRate) || sampleRate <= 0) throw new Error('Signal Hound XML: missing or invalid SampleRate.');
+  if (!isFinite(centerFreq)) throw new Error('Signal Hound XML: missing or invalid CenterFrequency.');
+
+  const referenceLevel = parseFloat(get('ReferenceLevel'));
+  const scaleFactor    = parseFloat(get('ScaleFactor'));
+  const sampleCountRaw = get('SampleCount');
+
+  return {
+    sampleRate, centerFreq,
+    referenceLevel: isFinite(referenceLevel) ? referenceLevel : null,
+    scaleFactor:    isFinite(scaleFactor)    ? scaleFactor    : null,
+    deviceType:     get('DeviceType'),
+    sampleCount:    sampleCountRaw ? parseInt(sampleCountRaw, 10) : null,
+  };
+}
+
 // ── Arithmetic shift right toggle ────────────────────────────────────────────
 function toggleASR() {
   document.getElementById('asrControls').style.display =
     document.getElementById('asrEnable').checked ? '' : 'none';
+}
+
+// ── Resample toggle ───────────────────────────────────────────────────────────
+function toggleResample() {
+  document.getElementById('resampleControls').style.display =
+    document.getElementById('resampleEnable').checked ? '' : 'none';
+}
+
+// Simple linear-interpolation resampler - handles both upsampling and downsampling by
+// remapping nOut evenly-spaced output points across the same [0, n-1] input index span
+// (so total duration n/fsIn is preserved as nOut/fsOut) and interpolating I/Q independently
+// between the two nearest input samples. No anti-alias filtering before downsampling -
+// deliberately kept simple for this tool's "quick look at a different rate" use case rather
+// than a full polyphase/FIR decimator; heavy downsampling of a signal with content near
+// Nyquist will alias, same tradeoff as e.g. MATLAB's resample() without extra filter design.
+function resampleLinear(I, Q, fsIn, fsOut) {
+  const n = I.length;
+  if (n < 2 || fsOut === fsIn) return { I: new Float32Array(I), Q: new Float32Array(Q) };
+  const nOut = Math.max(1, Math.round(n * (fsOut / fsIn)));
+  const Iout = new Float32Array(nOut), Qout = new Float32Array(nOut);
+  const step = (n - 1) / Math.max(1, nOut - 1);
+  for (let i = 0; i < nOut; i++) {
+    const pos = i * step;
+    const i0 = Math.floor(pos);
+    const i1 = Math.min(i0 + 1, n - 1);
+    const frac = pos - i0;
+    Iout[i] = I[i0] + (I[i1] - I[i0]) * frac;
+    Qout[i] = Q[i0] + (Q[i1] - Q[i0]) * frac;
+  }
+  return { I: Iout, Q: Qout };
 }
 
 // ── I/Q swap ──────────────────────────────────────────────────────────────────
@@ -1658,18 +1827,27 @@ function updateSpectrum() {
     fft(re,im);
     for(let i=0;i<N;i++) psd[i]+=re[i]*re[i]+im[i]*im[i];
   }
+  const shiftEn=document.getElementById('specFftShift').checked;
   const half=N>>1;
-  // Monotonic frequency axis: −Fs/2 … 0 … +Fs/2 (no discontinuity)
   const freqs=new Float64Array(N);
-  for(let i=0;i<N;i++) freqs[i]=gFc+(i-half)*gFs/N;
-  // FFT-shift PSD so it aligns with freqs above
   const psdS=new Float64Array(N);
-  for(let i=0;i<N;i++) psdS[i]=psd[(i+half)%N]/avgCount;
+  if (shiftEn) {
+    // Monotonic frequency axis: −Fs/2 … 0 … +Fs/2 (no discontinuity)
+    for(let i=0;i<N;i++) freqs[i]=gFc+(i-half)*gFs/N;
+    for(let i=0;i<N;i++) psdS[i]=psd[(i+half)%N]/avgCount;
+  } else {
+    // Raw FFT bin order: 0 … Fs (DC first, no shift)
+    for(let i=0;i<N;i++) freqs[i]=gFc+i*gFs/N;
+    for(let i=0;i<N;i++) psdS[i]=psd[i]/avgCount;
+  }
+  // Front-end gain (dB): subtract so the plot reflects the actual signal level at the
+  // input rather than the level after amplification.
+  const gainDb = parseFloat(document.getElementById('specGain').value) || 0;
   let yData,yLabel;
-  if(scale==='dBFS'){yData=Array.from(psdS,v=>10*Math.log10(v/(N*N*wP)+1e-30));yLabel='dBFS';}
+  if(scale==='dBFS'){yData=Array.from(psdS,v=>10*Math.log10(v/(N*N*wP)+1e-30)-gainDb);yLabel='dBFS';}
   // dBm/Hz matches MATLAB pwelch output (divide by Fs×N×wP not N²×wP)
-  else if(scale==='dBm'){yData=Array.from(psdS,v=>10*Math.log10(v/(gFs*N*wP)+1e-30)+30);yLabel='dBm/Hz';}
-  else{yData=Array.from(psdS,v=>Math.sqrt(v/(N*N*wP)));yLabel='Amplitude';}
+  else if(scale==='dBm'){yData=Array.from(psdS,v=>10*Math.log10(v/(gFs*N*wP)+1e-30)+30-gainDb);yLabel='dBm/Hz';}
+  else{const gainLin=Math.pow(10,gainDb/20);yData=Array.from(psdS,v=>Math.sqrt(v/(N*N*wP))/gainLin);yLabel='Amplitude';}
   const div=gFs>1e6?1e6:gFs>1e3?1e3:1,fUnit=gFs>1e6?'MHz':gFs>1e3?'kHz':'Hz';
   const fArr=Array.from(freqs).map(f=>f/div);
   // Snap spectrum markers to nearest bin so readings stay accurate after param changes
@@ -1694,7 +1872,8 @@ function updateSpectrum() {
   const rbwEl = document.getElementById('rbwInput');
   if (rbwEl && !rbwEl.value.trim()) rbwEl.placeholder = actualRbw >= 1 ? Math.round(actualRbw).toString() : actualRbw.toFixed(2);
   document.getElementById('windowInfo').textContent =
-    `RBW: ${fmtHz(actualRbw)}  ·  FFT: ${N} pts  ·  ${win}  ·  ${avgCount} averages`;
+    `RBW: ${fmtHz(actualRbw)}  ·  FFT: ${N} pts  ·  ${win}  ·  ${avgCount} averages` +
+    (gainDb ? `  ·  Gain: ${gainDb>0?'+':''}${gainDb} dB (subtracted)` : '');
 }
 
 // ── Phase ──────────────────────────────────────────────────────────────────────
@@ -1913,8 +2092,12 @@ function resetAll(){
   document.getElementById('asrEnable').checked=false;
   document.getElementById('asrBits').value='1';
   document.getElementById('asrControls').style.display='none';
+  document.getElementById('resampleEnable').checked=false;
+  document.getElementById('resampleRate').value='';
+  document.getElementById('resampleControls').style.display='none';
   document.getElementById('fileInput').value='';
   document.getElementById('fileInput')._file=null;
+  document.getElementById('fileInput')._xmlFile=null;
   document.getElementById('fileName').textContent='No file chosen';
   document.getElementById('analyzeBtn').disabled=true;
   document.getElementById('plotContainer').style.display='none';
