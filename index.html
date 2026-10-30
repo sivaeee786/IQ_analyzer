@@ -545,6 +545,7 @@ select:focus, input:focus {
             <option value="mat">MATLAB .mat (variable Y)</option>
             <option value="csv">CSV — I,Q per line</option>
             <option value="csv_seq">CSV — alternating I / Q lines</option>
+            <option value="txt_iq">Text — I Q per line (space separated)</option>
             <option value="shiq">Signal Hound IQ (.iq + .xml)</option>
           </select>
         </div>
@@ -1328,6 +1329,8 @@ async function analyze() {
       }
     } else if (fmt === 'csv') {
       [I,Q] = parseCSVPaired(await file.text());
+    } else if (fmt === 'txt_iq') {
+      [I,Q] = parseCSVPaired(await file.text(), /[\s,;]+/);
     } else if (fmt === 'csv_seq') {
       [I,Q] = parseCSVSequential(await file.text());
     } else if (fmt === 'hex16') {
@@ -1416,12 +1419,12 @@ function parseIQ(buf, fmt) {
   return [I,Q];
 }
 // CSV: one I,Q pair per line  (comma / tab / semicolon / space separated)
-function parseCSVPaired(text) {
+function parseCSVPaired(text, sep = /[\t,;]+/) {
   const I = [], Q = [];
   for (const raw of text.split(/\r?\n/)) {
     const line = raw.trim();
     if (!line || line.startsWith('#')) continue;          // blank / comment
-    const parts = line.split(/[\t,;]+/).map(s => s.trim()).filter(Boolean);
+    const parts = line.split(sep).map(s => s.trim()).filter(Boolean);
     if (parts.length < 2) continue;
     const i = parseFloat(parts[0]), q = parseFloat(parts[1]);
     if (!isFinite(i) || !isFinite(q)) continue;          // skip header rows
